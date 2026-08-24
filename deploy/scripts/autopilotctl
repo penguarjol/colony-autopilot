@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+service_name="colony-autopilot.service"
+action="${1:-status}"
+apply=false
+
+if [[ "${2:-}" == "--apply" ]]; then
+  apply=true
+elif (($# > 1)); then
+  printf 'usage: autopilotctl [status|start|stop|restart|logs] [--apply]\n' >&2
+  exit 64
+fi
+
+case "$action" in
+  status)
+    systemctl --no-pager --full status "$service_name"
+    ;;
+  logs)
+    journalctl --no-pager -u "$service_name" -n 200
+    ;;
+  start|stop|restart)
+    if [[ "$apply" != true ]]; then
+      printf 'dry-run: systemctl %q %q\n' "$action" "$service_name"
+      printf 'pass --apply to change service state\n' >&2
+      exit 0
+    fi
+    if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+      printf '%s --apply must be run as root\n' "$action" >&2
+      exit 77
+    fi
+    systemctl "$action" "$service_name"
+    systemctl --no-pager --full status "$service_name"
+    ;;
+  --help|-h|help)
+    cat <<'EOF'
+Usage: autopilotctl [status|start|stop|restart|logs] [--apply]
+
+status is the default. Mutating actions are dry-run unless --apply is passed.
+EOF
+    ;;
+  *)
+    printf 'unknown action: %s\n' "$action" >&2
+    exit 64
+    ;;
+esac

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${AUTOPILOT_EXECUTABLE:=/opt/colony-autopilot/bin/colony-autopilot}"
+: "${AUTOPILOT_CONFIG:=/etc/colony-autopilot/controller.toml}"
+
+[[ "$AUTOPILOT_EXECUTABLE" == /* ]] || {
+  printf 'AUTOPILOT_EXECUTABLE must be an absolute path\n' >&2
+  exit 64
+}
+[[ -x "$AUTOPILOT_EXECUTABLE" ]] || {
+  printf 'autopilot executable is not executable: %s\n' "$AUTOPILOT_EXECUTABLE" >&2
+  exit 69
+}
+[[ -r "$AUTOPILOT_CONFIG" ]] || {
+  printf 'autopilot config is not readable: %s\n' "$AUTOPILOT_CONFIG" >&2
+  exit 66
+}
+
+exec "$AUTOPILOT_EXECUTABLE" \
+  --config "$AUTOPILOT_CONFIG" \
+  start

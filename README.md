@@ -1,0 +1,308 @@
+# Colony Autopilot deployment
+
+This repository contains the host-side deployment contract for Colony
+Autopilot. The supplied scripts are dry-run by default, install the service in
+observer mode, and do not start or restart anything unless explicitly asked.
+They never rewrite Minecraft world data. Backups and clones copy the volume as
+opaque files and verify the result.
+
+## Architecture
+
+The Minecraft server runs in its Pterodactyl container with
+`/home/container` as its container root. On the Ubuntu 24.04 host, that data is
+the volume:
+
+```text
+/var/lib/pterodactyl/volumes/fea5b15c-2aa0-473f-b361-3885b286cd7e
+```
+
+Colony Autopilot runs under the numeric UID and GID that own the bridge's
+`.colony-autopilot` spool. Both implementations enforce owner-only directories
+and files, so a separate service user or a group ACL would break the IPC
+contract. Systemd grants that runtime identity read-write access only to the
+shared spool, `/var/lib/colony-autopilot`, and
+`/var/log/colony-autopilot`. Controller stdout and stderr go to journald; the
+log directory is reserved for benchmark reports and operator exports.
+
+Ollama remains a separate system service and listens only on
+`127.0.0.1:11434`. Its override permits one request and one loaded model at a
+time, unloads models after each request, and applies `CPUQuota=150%`,
+`MemoryMax=3G`, `Nice=10`, and idle I/O scheduling. The expected preinstalled
+models are `phi3:mini` and `qwen2.5-coder:3b`.
+
+```text
+Minecraft container (/home/container)
+          |
+          | bridge-local events/control
+          v
+colony-autopilot.service (observer by default)
+          |
+          | localhost HTTP, sequential
+          v
+ollama.service (127.0.0.1:11434)
+```
+
+No deployment artifact parses or edits NBT, region, or player data. Operational
+copies are made only while the volume is idle unless an operator explicitly
+accepts a crash-consistent live copy with `--allow-live`.
+
+## Files and installed paths
+
+- `deploy/config/autopilot.env` installs to
+  `/etc/default/colony-autopilot`.
+- `deploy/config/controller.toml` installs to
+  `/etc/colony-autopilot/controller.toml`.
+- The Python controller installs under `/opt/colony-autopilot/controller` and
+  its executable installs to `/opt/colony-autopilot/bin/colony-autopilot`.
+- `deploy/systemd/colony-autopilot.service` installs to
+  `/etc/systemd/system/colony-autopilot.service`.
+- The detected spool identity installs to
+  `/etc/systemd/system/colony-autopilot.service.d/runtime-user.conf`.
+- The Ollama drop-in installs to
+  `/etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf`.
+- `autopilotctl` installs to `/usr/local/sbin/autopilotctl`.
+- Verified backups default to `/var/backups/colony-autopilot`.
+
+The installer copies the standard-library Python controller from this checkout
+into `/opt/colony-autopilot`. Its command-line contract is:
+
+```text
+colony-autopilot --config PATH validate-config
+colony-autopilot --config PATH start
+```
+
+## Install and service operations
+
+Inspect the installation without changing the host:
+
+```bash
+sudo deploy/scripts/install.sh
+```
+
+Install the files, preserving existing config:
+
+```bash
+sudo deploy/scripts/install.sh --apply
+sudo systemd-analyze verify /etc/systemd/system/colony-autopilot.service
+systemctl cat colony-autopilot.service
+```
+
+Run the Minecraft bridge once before applying the installer. Installation
+refuses to guess an identity: the spool plus its `requests`, `responses`, and
+`rejected` directories must already exist, use mode `0700`, and have one
+numeric owner. The generated systemd drop-in uses that UID and GID. Neither the
+installer nor systemd changes bridge ownership or permissions.
+
+Review the Ollama override before activating it. Restarting Ollama unloads
+current models and briefly interrupts requests:
+
+```bash
+systemctl cat ollama.service
+sudo deploy/scripts/install.sh --restart-ollama --apply
+curl --fail http://127.0.0.1:11434/api/tags
+```
+
+The installer does not start Autopilot unless `--start` is passed. Routine
+control is:
+
+```bash
+autopilotctl status
+sudo autopilotctl start --apply
+sudo autopilotctl stop --apply
+autopilotctl logs
+```
+
+Keep `controller.mode = "observer"` and `planner.enabled = false` until the
+bridge, permissions, backups, and acceptance benchmark have been reviewed.
+Existing configuration is not overwritten unless
+`install.sh --replace-config --apply` is used; replaced managed files are
+copied below
+`/var/backups/colony-autopilot/install-TIMESTAMP/`.
+
+## Existing server integration
+
+`/usr/local/bin/server` is the host service manager, not the Minecraft process.
+Add the entry from `deploy/integration/server-service-map.snippet.sh`
+immediately after its `SERVICE_MAP` declaration:
+
+```bash
+SERVICE_MAP[autopilot]="colony-autopilot.service"
+```
+
+This preserves the manager and makes its existing verbs available as
+`server autopilot start`, `server autopilot stop`, and
+`server autopilot status`. Back up `/usr/local/bin/server` before applying the
+one-line host patch.
+
+## Bridge protocol
+
+The controller and bridge use the same protocol-v1 envelopes and
+`requests/`, `responses/`, and `rejected/` directories. Requests and responses
+are mode `0600`; directories are mode `0700`. The controller obtains status
+and snapshots through typed bridge requests rather than reading a standalone
+snapshot file. Observer mode remains the deployment default and never submits
+a mutating action.
+
+## Backup and clone operations
+
+Stop both Autopilot and the Minecraft server before taking an operational
+backup. Start with a dry run:
+
+```bash
+sudo deploy/scripts/backup.sh
+sudo deploy/scripts/backup.sh --apply
+```
+
+The backup is written through a staging directory, gets a SHA-256 sidecar, is
+verified before publication, and is verified again at its final path. Restore
+testing should extract into a new empty directory, verify the sidecar first,
+and then register that directory as a separate Pterodactyl volume.
+
+Cloning always creates a verified backup first. The destination must be a new
+sibling of the source and is published only after an rsync checksum comparison:
+
+```bash
+sudo deploy/scripts/clone-world.sh \
+  --destination /var/lib/pterodactyl/volumes/NEW-UUID
+sudo deploy/scripts/clone-world.sh \
+  --destination /var/lib/pterodactyl/volumes/NEW-UUID \
+  --apply
+```
+
+`--allow-live` is an explicit exception for crash-consistent copies. It does
+not make a live copy transactionally consistent.
+
+## Bridge jar installation
+
+`deploy/scripts/install-bridge.sh` has no default volume and never permits an
+in-use volume. Build and test the bridge, calculate its checksum, and select an
+explicit stopped clone:
+
+```bash
+cd bridge
+gradle clean test build
+sha256sum build/libs/colonyautobridge-0.1.0.jar
+cd ..
+
+sudo deploy/scripts/install-bridge.sh \
+  --volume /var/lib/pterodactyl/volumes/CLONE-UUID \
+  --jar bridge/build/libs/colonyautobridge-0.1.0.jar \
+  --sha256 EXPECTED_64_CHARACTER_SHA256
+```
+
+The first invocation is a dry run. It requires the volume to exist as a direct
+child of `/var/lib/pterodactyl/volumes`, confirms `fuser` reports it idle,
+verifies the source checksum and archive, and checks the concrete Forge
+metadata, manifest vendor, and bridge entrypoint class. Apply only after
+reviewing that output:
+
+```bash
+sudo deploy/scripts/install-bridge.sh \
+  --volume /var/lib/pterodactyl/volumes/CLONE-UUID \
+  --jar bridge/build/libs/colonyautobridge-0.1.0.jar \
+  --sha256 EXPECTED_64_CHARACTER_SHA256 \
+  --apply
+```
+
+Existing bridge jars are checksummed and copied to
+`/var/backups/colony-autopilot/bridge/CLONE-UUID/TIMESTAMP/` before replacement.
+The new jar is staged and checksum-verified inside `mods/`, then published with
+an atomic rename as `mods/colonyautobridge.jar`. Its checksum sidecar is stored
+at the volume root so mod scanners never interpret it as a mod artifact.
+
+The known live volume is rejected unless the separate confirmation
+`--confirm-live-volume INSTALL_BRIDGE_ON_LIVE_VOLUME` is supplied. This token
+only confirms the path exception; it does not bypass the stopped-volume check.
+Clone-first installation remains the required operational procedure.
+
+Removal and rollback are also dry-run by default and require the same explicit,
+stopped volume:
+
+```bash
+sudo deploy/scripts/install-bridge.sh \
+  --volume /var/lib/pterodactyl/volumes/CLONE-UUID \
+  --remove
+
+sudo deploy/scripts/install-bridge.sh \
+  --volume /var/lib/pterodactyl/volumes/CLONE-UUID \
+  --rollback /var/backups/colony-autopilot/bridge/CLONE-UUID/TIMESTAMP
+```
+
+Add `--apply` only after reviewing the plan. Removal creates and verifies a
+backup first. Rollback accepts only a backup beneath that clone's managed
+backup directory, validates its manifest and each bridge jar, and backs up the
+current jar set before restoring.
+
+## Performance acceptance
+
+The benchmark is dry-run unless `--apply` is supplied. It verifies the active
+systemd CPU, memory, nice, and I/O limits; confirms Ollama is bound to
+localhost; confirms both models exist; and sends one bounded request to each
+model sequentially with `keep_alive: 0`.
+
+```bash
+sudo deploy/scripts/benchmark.sh
+sudo deploy/scripts/benchmark.sh --apply \
+  | tee "/var/log/colony-autopilot/benchmark-$(date -u +%Y%m%dT%H%M%SZ).log"
+```
+
+Acceptance requires all checks to pass, `phi3:mini` to respond within 60
+seconds, and `qwen2.5-coder:3b` within 90 seconds. Override the latency limits
+only when a measured hardware baseline has been reviewed. Run the benchmark
+with Autopilot stopped so its results are reproducible.
+
+## End-to-end acceptance
+
+Run behavioral acceptance against a cloned world before rollout and against
+the live spool after deployment:
+
+```bash
+python3 -m controller.acceptance --spool /path/to/.colony-autopilot \
+  --scenario health
+python3 -m controller.acceptance --spool /path/to/.colony-autopilot \
+  --scenario deadline --wait-seconds 30
+python3 -m controller.acceptance --spool /path/to/.colony-autopilot \
+  --scenario request --request-id REQUEST_UUID --wait-seconds 180
+```
+
+The request watcher must start while the citizen request is still open and
+before the controller dispatches it. It passes only when the initial snapshot
+identifies a deliverable citizen owner and a later snapshot no longer contains
+that exact MineColonies request UUID. The deadline scenario fails on any
+`FAILED` job and requires cursor advancement or completed work.
+
+## Uninstall and rollback
+
+Preview uninstall first:
+
+```bash
+sudo deploy/scripts/uninstall.sh
+sudo deploy/scripts/uninstall.sh --apply
+```
+
+The normal uninstall stops and disables Autopilot and removes only managed
+service files. It preserves configuration, state, logs, application files,
+backups, and the Minecraft volume. Purging config/state/logs requires both
+`--purge` and `--confirm-purge colony-autopilot`; those paths are archived and
+checksummed before removal.
+
+Rollback procedure:
+
+1. Stop Autopilot with `sudo autopilotctl stop --apply`.
+2. Inspect the newest `/var/backups/colony-autopilot/install-TIMESTAMP/`.
+3. Copy each required file from that directory back to its original absolute
+   path, preserving owner and mode.
+4. If no prior Ollama override existed, remove only
+   `/etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf`.
+5. Run `sudo systemctl daemon-reload` and `sudo systemctl restart ollama`.
+6. Verify `systemctl cat ollama`, its localhost listener, and `/api/tags`.
+7. Validate `/etc/colony-autopilot/controller.toml` with the installed
+   executable.
+8. Confirm `runtime-user.conf` still matches the spool's numeric owner.
+9. Start Autopilot only after `systemd-analyze verify`, spool access, and the
+   acceptance benchmark pass.
+
+World restore is deliberately separate from service rollback. Verify an
+archive with `sha256sum -c`, extract it to a new sibling directory, compare it
+to a throwaway clone, and update Pterodactyl only during a maintenance window.
+Never extract a backup over the active volume.

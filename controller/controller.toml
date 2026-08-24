@@ -1,0 +1,30 @@
+[controller]
+mode = "observer"
+interval_seconds = 30.0
+database_path = "controller/var/controller.db"
+
+[governor]
+min_tps = 19.5
+max_tick_ms = 35.0
+min_available_ram_gib = 4.5
+max_load_per_cpu = 1.5
+
+[bridge]
+transport = "spool"
+spool_path = "controller/var/spool"
+socket_path = "controller/var/bridge.sock"
+timeout_seconds = 3.0
+
+[planner]
+enabled = false
+endpoint = "http://127.0.0.1:11434/api/generate"
+model = "qwen2.5-coder:3b"
+temperature = 0.0
+num_thread = 2
+context = 1024
+keep_alive = 0
+timeout_seconds = 30.0
+cadence_seconds = 1200.0
+
+[grants]
+budget = 8

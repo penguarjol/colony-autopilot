@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly application_root="/opt/colony-autopilot"
+
+[[ -d "$application_root/controller" ]] || {
+  printf 'controller package is missing: %s/controller\n' "$application_root" >&2
+  exit 69
+}
+
+cd "$application_root"
+exec /usr/bin/python3 -m controller "$@"

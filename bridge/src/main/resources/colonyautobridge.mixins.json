@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.colonyautopilot.bridge.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "server": [
+    "BuildingStructureHandlerMixin",
+    "StructureAiAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
