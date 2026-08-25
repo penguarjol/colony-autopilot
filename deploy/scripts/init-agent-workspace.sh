@@ -12,6 +12,10 @@ readonly source_backup_root="$DEFAULT_BACKUP_ROOT/agent-source"
 bundle=""
 branch=""
 
+workspace_git() {
+  git -c safe.directory="$workspace" -C "$workspace" "$@"
+}
+
 usage() {
   cat <<'EOF'
 Usage: init-agent-workspace.sh --bundle PATH --branch NAME [--apply]
@@ -128,17 +132,17 @@ if [[ ! -e "$workspace" ]]; then
 else
   [[ -d "$workspace/.git" && ! -L "$workspace" ]] ||
     die "existing workspace is unsafe: $workspace"
-  git -C "$workspace" diff --quiet &&
-    git -C "$workspace" diff --cached --quiet ||
+  workspace_git diff --quiet &&
+    workspace_git diff --cached --quiet ||
     die "agent workspace has uncommitted changes"
-  current_origin="$(git -C "$workspace" remote get-url origin)"
+  current_origin="$(workspace_git remote get-url origin)"
   [[ "$(canonical_path "$current_origin")" == "$bare_repository" ]] ||
     die "agent workspace origin is not the managed bare repository"
-  git -C "$workspace" fetch origin "$branch"
-  if [[ "$(git -C "$workspace" branch --show-current)" != "$branch" ]]; then
-    git -C "$workspace" switch "$branch"
+  workspace_git fetch origin "$branch"
+  if [[ "$(workspace_git branch --show-current)" != "$branch" ]]; then
+    workspace_git switch "$branch"
   fi
-  git -C "$workspace" merge --ff-only "origin/$branch"
+  workspace_git merge --ff-only "origin/$branch"
 fi
 
 chown -R colony-agent:colony-agent /srv/colony-agent

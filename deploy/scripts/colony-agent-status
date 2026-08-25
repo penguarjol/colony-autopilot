@@ -11,12 +11,12 @@ printf 'minecraft=%s\n' "$(
     "$LIVE_CONTAINER"
 )"
 printf 'workspace_branch=%s\n' "$(
-  git -C "$AGENT_WORKSPACE" branch --show-current
+  agent_workspace_git branch --show-current
 )"
 printf 'workspace_head=%s\n' "$(
-  git -C "$AGENT_WORKSPACE" rev-parse --short HEAD
+  agent_workspace_git rev-parse --short HEAD
 )"
-git -C "$AGENT_WORKSPACE" status --short
+agent_workspace_git status --short
 free -h
 df -h "$AGENT_WORKSPACE" "$LIVE_VOLUME"
 journalctl --no-pager -p warning \

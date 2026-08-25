@@ -56,6 +56,8 @@ grep -Fq 'repository_root="/srv/colony-agent/repositories"' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
 grep -Fq 'rmdir --ignore-fail-on-non-empty "$workspace"' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
+grep -Fq 'git -c safe.directory="$workspace" -C "$workspace"' \
+  "$repo_root/deploy/scripts/init-agent-workspace.sh"
 grep -Fq 'cd /srv/colony-agent/workspaces/colony-autopilot' \
   "$repo_root/deploy/scripts/colony-agent-cli"
 grep -Fq '"http://$COLONY_AGENT_HOST:$COLONY_AGENT_PORT"' \

@@ -36,19 +36,23 @@ run_as_agent() {
     "$@"
 }
 
+agent_workspace_git() {
+  git -c safe.directory="$AGENT_WORKSPACE" -C "$AGENT_WORKSPACE" "$@"
+}
+
 validate_workspace() {
   [[ -d "$AGENT_WORKSPACE/.git" && ! -L "$AGENT_WORKSPACE" ]] ||
     operation_die "managed agent workspace is unavailable"
-  git -C "$AGENT_WORKSPACE" diff --quiet ||
+  agent_workspace_git diff --quiet ||
     operation_die "agent workspace has unstaged changes"
-  git -C "$AGENT_WORKSPACE" diff --cached --quiet ||
+  agent_workspace_git diff --cached --quiet ||
     operation_die "agent workspace has staged changes"
 
-  DEPLOY_BRANCH="$(git -C "$AGENT_WORKSPACE" branch --show-current)"
+  DEPLOY_BRANCH="$(agent_workspace_git branch --show-current)"
   [[ "$DEPLOY_BRANCH" == agent/* ]] ||
     operation_die "deployments require an agent/* feature branch"
-  DEPLOY_HEAD="$(git -C "$AGENT_WORKSPACE" rev-parse HEAD)"
-  origin_head="$(git -C "$AGENT_WORKSPACE" rev-parse "origin/$DEPLOY_BRANCH")"
+  DEPLOY_HEAD="$(agent_workspace_git rev-parse HEAD)"
+  origin_head="$(agent_workspace_git rev-parse "origin/$DEPLOY_BRANCH")"
   [[ "$DEPLOY_HEAD" == "$origin_head" ]] ||
     operation_die "feature commit must be pushed to the managed bare repository"
   export DEPLOY_BRANCH DEPLOY_HEAD
