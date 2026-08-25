@@ -36,6 +36,8 @@ for script in \
 done
 
 bash -n "$repo_root/deploy/scripts/authorize-agent-deploy.sh"
+grep -Fq '/usr/local/lib/colony-agent/ops/lib/common.sh' \
+  "$repo_root/deploy/scripts/authorize-agent-deploy.sh"
 
 sudoers="$repo_root/deploy/sudoers/colony-agent"
 grep -Fq 'colony-agent-status ""' "$sudoers"

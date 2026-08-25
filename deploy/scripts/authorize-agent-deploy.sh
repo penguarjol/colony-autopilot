@@ -2,7 +2,12 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$script_dir/../lib/common.sh"
+installed_common="/usr/local/lib/colony-agent/ops/lib/common.sh"
+if [[ -f "$installed_common" ]]; then
+  source "$installed_common"
+else
+  source "$script_dir/../lib/common.sh"
+fi
 
 revoke=false
 
