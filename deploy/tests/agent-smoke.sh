@@ -6,6 +6,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 required_files=(
   deploy/config/opencode.json
   deploy/scripts/colony-agent-cli
+  deploy/scripts/init-agent-workspace.sh
   deploy/scripts/install-agent.sh
   deploy/scripts/run-colony-agent
   deploy/scripts/uninstall-agent.sh
@@ -21,6 +22,7 @@ done
 
 for script in \
   deploy/scripts/colony-agent-cli \
+  deploy/scripts/init-agent-workspace.sh \
   deploy/scripts/install-agent.sh \
   deploy/scripts/run-colony-agent \
   deploy/scripts/uninstall-agent.sh; do
@@ -42,5 +44,9 @@ grep -Fq 'OPENCODE_SERVER_PASSWORD' \
   "$repo_root/deploy/scripts/install-agent.sh"
 grep -Fq '23eca6a892c6b53c0f9ba2333b6906bdc31902634631d54cf17500e7e8cbfa20' \
   "$repo_root/deploy/scripts/install-agent.sh"
+grep -Fq 'git bundle verify' \
+  "$repo_root/deploy/scripts/init-agent-workspace.sh"
+grep -Fq 'repository_root="/srv/colony-agent/repositories"' \
+  "$repo_root/deploy/scripts/init-agent-workspace.sh"
 
 printf 'local coding agent artifact smoke tests passed\n'
