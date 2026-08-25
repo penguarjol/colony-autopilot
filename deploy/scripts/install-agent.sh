@@ -71,7 +71,11 @@ if [[ "$APPLY" != true ]]; then
     /etc/colony-agent/opencode.json
   quote_command install -m 0644 "$deploy_dir/systemd/colony-agent.service" \
     /etc/systemd/system/colony-agent.service
+  quote_command install -m 0644 \
+    "$deploy_dir/systemd/ollama.service.d/colony-autopilot.conf" \
+    /etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf
   quote_command systemctl daemon-reload
+  quote_command systemctl restart ollama.service
   [[ "$start_service" == true ]] &&
     quote_command systemctl enable --now colony-agent.service
   exit 0
@@ -117,6 +121,7 @@ install -d -m 0750 "$backup_root"
 for path in \
   /etc/colony-agent/opencode.json \
   /etc/systemd/system/colony-agent.service \
+  /etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf \
   /usr/local/lib/colony-agent/run-colony-agent \
   /usr/local/sbin/colony-agent-cli; do
   if [[ -e "$path" ]]; then
@@ -131,6 +136,9 @@ if [[ ! -e /etc/colony-agent/opencode.json ||
 fi
 install -m 0644 "$deploy_dir/systemd/colony-agent.service" \
   /etc/systemd/system/colony-agent.service
+install -D -m 0644 \
+  "$deploy_dir/systemd/ollama.service.d/colony-autopilot.conf" \
+  /etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf
 install -m 0755 "$deploy_dir/scripts/run-colony-agent" \
   /usr/local/lib/colony-agent/run-colony-agent
 install -m 0755 "$deploy_dir/scripts/colony-agent-cli" \
@@ -148,8 +156,9 @@ fi
 chown root:colony-agent /etc/colony-agent/agent.env
 chmod 0640 /etc/colony-agent/agent.env
 
-ollama pull qwen3.5:4b
 systemctl daemon-reload
+systemctl restart ollama.service
+ollama pull qwen3.5:4b
 if command -v ufw >/dev/null 2>&1 &&
   ufw status | awk 'NR == 1 && $2 == "active" { found=1 } END { exit !found }'; then
   ufw allow from 192.168.1.0/24 to any port 4096 proto tcp \
