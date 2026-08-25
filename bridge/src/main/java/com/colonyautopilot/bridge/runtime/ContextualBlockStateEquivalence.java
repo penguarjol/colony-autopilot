@@ -7,6 +7,7 @@ final class ContextualBlockStateEquivalence {
     private static final String DOMUM_ORNAMENTUM_PILLAR =
         "domum_ornamentum:blockpillar";
     private static final String CONTEXTUAL_COLUMN_PROPERTY = "column";
+    private static final String LEAF_DISTANCE_PROPERTY = "distance";
 
     private ContextualBlockStateEquivalence() {
     }
@@ -21,16 +22,48 @@ final class ContextualBlockStateEquivalence {
             || !blueprintBlock.equals(worldBlock)) {
             return false;
         }
-        Map<String, String> expected = withoutContextualColumn(blueprintProperties);
-        Map<String, String> actual = withoutContextualColumn(worldProperties);
-        return expected.equals(actual);
+        return matchesIgnoringProperty(
+            blueprintProperties,
+            worldProperties,
+            CONTEXTUAL_COLUMN_PROPERTY
+        );
     }
 
-    private static Map<String, String> withoutContextualColumn(
-        Map<String, String> properties
+    static boolean matchesLeaves(
+        String blueprintBlock,
+        Map<String, String> blueprintProperties,
+        String worldBlock,
+        Map<String, String> worldProperties
     ) {
-        Map<String, String> result = new HashMap<>(properties);
-        result.remove(CONTEXTUAL_COLUMN_PROPERTY);
-        return result;
+        if (!blueprintBlock.equals(worldBlock)) {
+            return false;
+        }
+        return matchesIgnoringProperty(
+            blueprintProperties,
+            worldProperties,
+            LEAF_DISTANCE_PROPERTY
+        );
+    }
+
+    static boolean matchesExteriorWater(
+        String blueprintBlock,
+        String worldBlock,
+        boolean exteriorAir
+    ) {
+        return exteriorAir
+            && "minecraft:air".equals(blueprintBlock)
+            && "minecraft:water".equals(worldBlock);
+    }
+
+    private static boolean matchesIgnoringProperty(
+        Map<String, String> blueprintProperties,
+        Map<String, String> worldProperties,
+        String ignoredProperty
+    ) {
+        Map<String, String> expected = new HashMap<>(blueprintProperties);
+        Map<String, String> actual = new HashMap<>(worldProperties);
+        expected.remove(ignoredProperty);
+        actual.remove(ignoredProperty);
+        return expected.equals(actual);
     }
 }
