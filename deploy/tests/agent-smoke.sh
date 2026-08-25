@@ -58,6 +58,14 @@ grep -Fq 'rmdir --ignore-fail-on-non-empty "$workspace"' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
 grep -Fq 'runuser -u colony-agent -- git' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
+chown_line="$(grep -n 'chown -R colony-agent:colony-agent' \
+  "$repo_root/deploy/scripts/init-agent-workspace.sh" | cut -d: -f1)"
+fetch_line="$(grep -n 'bare_git fetch' \
+  "$repo_root/deploy/scripts/init-agent-workspace.sh" | cut -d: -f1)"
+if ((chown_line >= fetch_line)); then
+  printf 'workspace ownership must be repaired before fetching\n' >&2
+  exit 1
+fi
 grep -Fq 'cd /srv/colony-agent/workspaces/colony-autopilot' \
   "$repo_root/deploy/scripts/colony-agent-cli"
 grep -Fq '"http://$COLONY_AGENT_HOST:$COLONY_AGENT_PORT"' \

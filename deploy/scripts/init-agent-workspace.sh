@@ -116,6 +116,7 @@ install -m 0640 "$bundle" "$source_backup_root/$backup_name"
   sha256sum "$backup_name" >"$backup_name.sha256"
   sha256sum -c "$backup_name.sha256"
 )
+chown -R colony-agent:colony-agent /srv/colony-agent
 
 if [[ ! -e "$bare_repository" ]]; then
   git clone --bare "$bundle" "$bare_repository"
@@ -149,7 +150,6 @@ else
   workspace_git merge --ff-only "origin/$branch"
 fi
 
-chown -R colony-agent:colony-agent /srv/colony-agent
 chmod 0750 /srv/colony-agent "$repository_root" "$(dirname "$workspace")"
 log "initialized agent workspace at $workspace from $branch"
 
