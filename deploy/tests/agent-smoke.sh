@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 required_files=(
   deploy/config/opencode.json
+  deploy/tests/agent-canary.sh
   deploy/scripts/colony-agent-cli
   deploy/scripts/init-agent-workspace.sh
   deploy/scripts/install-agent.sh
@@ -21,6 +22,7 @@ for relative_path in "${required_files[@]}"; do
 done
 
 for script in \
+  deploy/tests/agent-canary.sh \
   deploy/scripts/colony-agent-cli \
   deploy/scripts/init-agent-workspace.sh \
   deploy/scripts/install-agent.sh \
