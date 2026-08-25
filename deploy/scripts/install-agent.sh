@@ -158,6 +158,15 @@ chmod 0640 /etc/colony-agent/agent.env
 
 systemctl daemon-reload
 systemctl restart ollama.service
+ollama_ready=false
+for _ in {1..30}; do
+  if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
+    ollama_ready=true
+    break
+  fi
+  sleep 1
+done
+[[ "$ollama_ready" == true ]] || die "Ollama did not become ready"
 ollama pull qwen3.5:4b
 if command -v ufw >/dev/null 2>&1 &&
   ufw status | awk 'NR == 1 && $2 == "active" { found=1 } END { exit !found }'; then
