@@ -34,6 +34,8 @@ done
 grep -Fq 'qwen3.5:4b' "$repo_root/deploy/config/opencode.json"
 grep -Fq 'http://127.0.0.1:11434/v1' \
   "$repo_root/deploy/config/opencode.json"
+grep -Fq '"reasoningEffort": "none"' \
+  "$repo_root/deploy/config/opencode.json"
 grep -Fq '"external_directory": "deny"' \
   "$repo_root/deploy/config/opencode.json"
 grep -Fq 'User=colony-agent' \

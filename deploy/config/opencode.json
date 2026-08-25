@@ -12,9 +12,12 @@
         "qwen3.5:4b": {
           "name": "Qwen 3.5 4B",
           "tools": true,
+          "options": {
+            "reasoningEffort": "none"
+          },
           "limit": {
             "context": 65536,
-            "output": 8192
+            "output": 2048
           }
         }
       }
