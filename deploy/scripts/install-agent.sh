@@ -245,7 +245,7 @@ if [[ -d "$agent_workspace/.git" ]]; then
     JAVA_HOME=/opt/colony-agent/java \
     PATH=/opt/colony-agent/java/bin:/usr/local/bin:/usr/bin:/bin \
     "/opt/colony-agent/gradle/gradle-$gradle_version/bin/gradle" \
-    -p "$agent_workspace/bridge" --no-daemon testClasses
+    -p "$agent_workspace/bridge" --no-daemon clean test build
 fi
 systemctl enable --now colony-agent-operation.socket
 if command -v ufw >/dev/null 2>&1 &&
