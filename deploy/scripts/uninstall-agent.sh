@@ -68,7 +68,9 @@ managed_paths=(
   /usr/local/lib/colony-agent/ops/lib/common.sh
   /usr/local/lib/colony-agent/ops/scripts/backup.sh
   /usr/local/lib/colony-agent/ops/scripts/install-bridge.sh
+  /usr/local/lib/colony-agent/ops/tests/agent-canary.sh
   /usr/local/bin/colony-agent-op
+  /usr/local/sbin/authorize-agent-deploy
   /usr/local/sbin/colony-agent-cli
   /usr/local/sbin/colony-agent-deploy
   /usr/local/sbin/colony-agent-restart

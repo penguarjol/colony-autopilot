@@ -3,6 +3,7 @@ set -euo pipefail
 
 source /usr/local/lib/colony-agent/agent-operations.sh
 operation_setup "$@"
+require_deploy_authority
 require_live_services
 
 state_file="$AGENT_STATE_ROOT/last-deploy.env"

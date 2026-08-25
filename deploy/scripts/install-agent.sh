@@ -78,6 +78,9 @@ if [[ "$APPLY" != true ]]; then
     /etc/sudoers.d/colony-agent
   quote_command install -m 0755 "$deploy_dir/scripts/colony-agent-op" \
     /usr/local/bin/colony-agent-op
+  quote_command install -m 0755 \
+    "$deploy_dir/scripts/authorize-agent-deploy.sh" \
+    /usr/local/sbin/authorize-agent-deploy
   quote_command systemctl daemon-reload
   quote_command systemctl enable --now colony-agent-operation.socket
   quote_command systemctl restart ollama.service
@@ -109,7 +112,7 @@ install -d -m 0750 -o colony-agent -g colony-agent \
   /var/log/colony-agent "$workspace_root"
 install -d -m 0755 /opt/colony-agent/bin /usr/local/lib/colony-agent
 install -d -m 0755 /usr/local/lib/colony-agent/ops/scripts \
-  /usr/local/lib/colony-agent/ops/lib
+  /usr/local/lib/colony-agent/ops/lib /usr/local/lib/colony-agent/ops/tests
 install -d -m 0750 -o root -g colony-agent /etc/colony-agent
 install -d -m 0750 -o root -g colony-agent /var/lib/colony-agent-ops
 
@@ -165,6 +168,10 @@ install -m 0755 "$deploy_dir/scripts/backup.sh" \
   /usr/local/lib/colony-agent/ops/scripts/backup.sh
 install -m 0755 "$deploy_dir/scripts/install-bridge.sh" \
   /usr/local/lib/colony-agent/ops/scripts/install-bridge.sh
+install -m 0755 "$deploy_dir/tests/agent-canary.sh" \
+  /usr/local/lib/colony-agent/ops/tests/agent-canary.sh
+install -m 0755 "$deploy_dir/scripts/authorize-agent-deploy.sh" \
+  /usr/local/sbin/authorize-agent-deploy
 for operation in deploy restart rollback status; do
   install -m 0755 "$deploy_dir/scripts/colony-agent-$operation" \
     "/usr/local/sbin/colony-agent-$operation"

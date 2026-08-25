@@ -11,6 +11,7 @@ required_files=(
   deploy/scripts/colony-agent-restart
   deploy/scripts/colony-agent-rollback
   deploy/scripts/colony-agent-status
+  deploy/scripts/authorize-agent-deploy.sh
   deploy/sudoers/colony-agent
   deploy/systemd/colony-agent-operation.socket
   deploy/systemd/colony-agent-operation@.service
@@ -33,6 +34,8 @@ for script in \
   deploy/scripts/colony-agent-status; do
   bash -n "$repo_root/$script"
 done
+
+bash -n "$repo_root/deploy/scripts/authorize-agent-deploy.sh"
 
 sudoers="$repo_root/deploy/sudoers/colony-agent"
 grep -Fq 'colony-agent-status ""' "$sudoers"
@@ -73,6 +76,11 @@ grep -Fq 'sha256sum' "$operations"
 grep -Fq 'INSTALL_BRIDGE_ON_LIVE_VOLUME' "$operations"
 grep -Fq 'rollback_deployment' "$operations"
 grep -Fq 'health_check' "$operations"
+grep -Fq 'require_deploy_authority' "$operations"
+for operation in deploy restart rollback; do
+  grep -Fq 'require_deploy_authority' \
+    "$repo_root/deploy/scripts/colony-agent-$operation"
+done
 
 if grep -R -E 'NOPASSWD:[[:space:]]*(ALL|/bin/(ba)?sh|/usr/bin/env)' \
   "$repo_root/deploy/sudoers" >/dev/null; then

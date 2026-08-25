@@ -4,6 +4,7 @@ set -euo pipefail
 readonly AGENT_WORKSPACE="/srv/colony-agent/workspaces/colony-autopilot"
 readonly AGENT_BARE_REPOSITORY="/srv/colony-agent/repositories/colony-autopilot.git"
 readonly AGENT_STATE_ROOT="/var/lib/colony-agent-ops"
+readonly AGENT_DEPLOY_GATE="$AGENT_STATE_ROOT/deploy-enabled"
 readonly AGENT_AUDIT_ROOT="/var/log/colony-agent/deployments"
 readonly AGENT_BACKUP_ROOT="/var/backups/colony-autopilot"
 readonly LIVE_CONTAINER="fea5b15c-2aa0-473f-b361-3885b286cd7e"
@@ -28,6 +29,15 @@ operation_setup() {
     "$AGENT_STATE_ROOT" "$AGENT_AUDIT_ROOT"
   exec 9>/run/lock/colony-agent-operations.lock
   flock --exclusive 9
+}
+
+require_deploy_authority() {
+  [[ -f "$AGENT_DEPLOY_GATE" && ! -L "$AGENT_DEPLOY_GATE" ]] ||
+    operation_die "deployment authority is disabled"
+  [[ "$(stat -c '%U:%G %a' "$AGENT_DEPLOY_GATE")" == "root:colony-agent 640" ]] ||
+    operation_die "deployment authority gate is unsafe"
+  grep -Fqx 'authorized=true' "$AGENT_DEPLOY_GATE" ||
+    operation_die "deployment authority is disabled"
 }
 
 run_as_agent() {

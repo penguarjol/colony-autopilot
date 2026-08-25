@@ -27,8 +27,9 @@ log directory is reserved for benchmark reports and operator exports.
 Ollama remains a separate system service and listens only on
 `127.0.0.1:11434`. Its override permits one request and one loaded model at a
 time, unloads models after each request, and applies `CPUQuota=150%`,
-`MemoryMax=3G`, `Nice=10`, and idle I/O scheduling. The expected preinstalled
-models are `phi3:mini` and `qwen2.5-coder:3b`.
+`MemoryMax=6G`, a 65,536-token context ceiling, `Nice=10`, and idle I/O
+scheduling. The coding agent uses `qwen3.5:4b`; `phi3:mini` remains available
+for the existing planner.
 
 ```text
 Minecraft container (/home/container)
@@ -118,6 +119,76 @@ Existing configuration is not overwritten unless
 `install.sh --replace-config --apply` is used; replaced managed files are
 copied below
 `/var/backups/colony-autopilot/install-TIMESTAMP/`.
+
+## Local coding agent
+
+The local agent runs OpenCode 1.18.22 as the dedicated `colony-agent` account
+and uses `ollama/qwen3.5:4b`. Its writable source tree is
+`/srv/colony-agent/workspaces/colony-autopilot`; the live application and
+Minecraft volume are not agent-writable.
+
+The authenticated browser is available only on the LAN at:
+
+```text
+http://192.168.1.171:4096
+```
+
+The generated username and password are stored in
+`/etc/colony-agent/agent.env`, readable by root and the service account. An
+administrator can attach the SSH TUI to the same backend and shared sessions:
+
+```bash
+ssh serveradmin@192.168.1.171
+sudo colony-agent-cli
+```
+
+Install the runtime without enabling autonomous deployment:
+
+```bash
+sudo deploy/scripts/install-agent.sh --apply
+sudo deploy/scripts/init-agent-workspace.sh \
+  --bundle /path/to/approved-source.bundle \
+  --branch session/local-agent-20260824 \
+  --apply
+sudo systemctl enable --now colony-agent.service
+```
+
+The agent can read, edit, test, branch, and commit inside its clone. Host
+operations use the fixed `colony-agent-op status|deploy|restart|rollback`
+protocol. A root-owned socket broker maps those four words to non-editable
+wrappers; arbitrary root commands, Docker, direct systemd control, force
+pushes, external paths, and live-volume access remain unavailable.
+
+Deploy, restart, and rollback are disabled until the installed capability
+canary succeeds:
+
+```bash
+sudo authorize-agent-deploy --apply
+sudo authorize-agent-deploy --revoke --apply
+```
+
+Each deployment requires a clean pushed `agent/*` commit, runs bridge,
+controller, deployment, and security gates as `colony-agent`, verifies a full
+backup, records hashes, health-checks Minecraft and Autopilot, and rolls back
+automatically on failure. Manual rollback is:
+
+```bash
+sudo colony-agent-rollback
+```
+
+Deployment state is root-owned under `/var/lib/colony-agent-ops`; audit records
+are under `/var/log/colony-agent/deployments`; source and world backups are
+under `/var/backups/colony-autopilot`. Stop or remove the agent with:
+
+```bash
+sudo systemctl disable --now colony-agent.service
+sudo deploy/scripts/uninstall-agent.sh --apply
+```
+
+The 4B model is intended for bounded maintenance and seeded repairs. It is not
+equivalent to a senior cloud coding agent. If the capability or resource
+canary fails, keep deployment authority revoked and use chat, read, edit, and
+test functions only.
 
 ## Existing server integration
 
@@ -247,7 +318,7 @@ sudo deploy/scripts/benchmark.sh --apply \
 ```
 
 Acceptance requires all checks to pass, `phi3:mini` to respond within 60
-seconds, and `qwen2.5-coder:3b` within 90 seconds. Override the latency limits
+seconds, and `qwen3.5:4b` within 90 seconds. Override the latency limits
 only when a measured hardware baseline has been reviewed. Run the benchmark
 with Autopilot stopped so its results are reproducible.
 
