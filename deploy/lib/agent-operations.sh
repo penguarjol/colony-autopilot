@@ -2,6 +2,7 @@
 set -euo pipefail
 
 readonly AGENT_WORKSPACE="/srv/colony-agent/workspaces/colony-autopilot"
+readonly AGENT_BARE_REPOSITORY="/srv/colony-agent/repositories/colony-autopilot.git"
 readonly AGENT_STATE_ROOT="/var/lib/colony-agent-ops"
 readonly AGENT_AUDIT_ROOT="/var/log/colony-agent/deployments"
 readonly AGENT_BACKUP_ROOT="/var/backups/colony-autopilot"
@@ -38,6 +39,11 @@ run_as_agent() {
 
 agent_workspace_git() {
   git -c safe.directory="$AGENT_WORKSPACE" -C "$AGENT_WORKSPACE" "$@"
+}
+
+agent_bare_git() {
+  git -c safe.directory="$AGENT_BARE_REPOSITORY" \
+    --git-dir="$AGENT_BARE_REPOSITORY" "$@"
 }
 
 validate_workspace() {
@@ -121,8 +127,7 @@ create_release_backup() {
     install -D -m 0755 /opt/colony-autopilot/bin/colony-autopilot \
       "$RELEASE_BACKUP/bin/colony-autopilot"
   fi
-  git --git-dir=/srv/colony-agent/repositories/colony-autopilot.git \
-    bundle create "$RELEASE_BACKUP/source.bundle" --all
+  agent_bare_git bundle create "$RELEASE_BACKUP/source.bundle" --all
   (
     cd "$RELEASE_BACKUP"
     sha256sum source.bundle >MANIFEST.sha256

@@ -13,7 +13,14 @@ bundle=""
 branch=""
 
 workspace_git() {
-  git -c safe.directory="$workspace" -C "$workspace" "$@"
+  git -c safe.directory="$workspace" \
+    -c safe.directory="$bare_repository" \
+    -C "$workspace" "$@"
+}
+
+bare_git() {
+  git -c safe.directory="$bare_repository" \
+    --git-dir="$bare_repository" "$@"
 }
 
 usage() {
@@ -118,7 +125,7 @@ if [[ ! -e "$bare_repository" ]]; then
 else
   [[ -d "$bare_repository" && ! -L "$bare_repository" ]] ||
     die "existing bare repository is unsafe: $bare_repository"
-  git --git-dir="$bare_repository" fetch "$bundle" \
+  bare_git fetch "$bundle" \
     "refs/heads/$branch:refs/heads/$branch"
 fi
 
