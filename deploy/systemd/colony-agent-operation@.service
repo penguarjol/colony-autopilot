@@ -1,0 +1,40 @@
+[Unit]
+Description=Local coding agent privileged operation
+After=docker.service
+
+[Service]
+Type=exec
+User=root
+Group=root
+ExecStart=/usr/local/lib/colony-agent/operation-dispatch
+StandardInput=socket
+StandardOutput=inherit
+StandardError=inherit
+TimeoutStopSec=30min
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SETGID CAP_SETUID
+AmbientCapabilities=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SETGID CAP_SETUID
+ReadWritePaths=/srv/colony-agent/workspaces
+ReadWritePaths=/var/lib/colony-agent /var/lib/colony-agent-ops
+ReadWritePaths=/var/log/colony-agent /var/backups/colony-autopilot
+ReadWritePaths=/var/lib/pterodactyl/volumes/fea5b15c-2aa0-473f-b361-3885b286cd7e
+ReadWritePaths=/opt/colony-autopilot /run/lock

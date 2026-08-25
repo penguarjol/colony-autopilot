@@ -38,8 +38,13 @@
       "rm -rf *": "deny",
       "git push --force*": "deny",
       "git reset --hard*": "deny",
+      "colony-agent-op status": "allow",
+      "colony-agent-op deploy": "allow",
+      "colony-agent-op restart": "allow",
+      "colony-agent-op rollback": "allow",
       "sudo /usr/local/sbin/colony-agent-status": "allow",
       "sudo /usr/local/sbin/colony-agent-deploy": "allow",
+      "sudo /usr/local/sbin/colony-agent-restart": "allow",
       "sudo /usr/local/sbin/colony-agent-rollback": "allow"
     }
   }

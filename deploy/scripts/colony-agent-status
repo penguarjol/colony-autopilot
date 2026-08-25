@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /usr/local/lib/colony-agent/agent-operations.sh
+operation_setup "$@"
+
+printf 'agent=%s\n' "$(systemctl is-active colony-agent.service)"
+printf 'autopilot=%s\n' "$(systemctl is-active colony-autopilot.service)"
+printf 'minecraft=%s\n' "$(
+  docker inspect --format '{{if .State.Running}}running{{else}}stopped{{end}}' \
+    "$LIVE_CONTAINER"
+)"
+printf 'workspace_branch=%s\n' "$(
+  git -C "$AGENT_WORKSPACE" branch --show-current
+)"
+printf 'workspace_head=%s\n' "$(
+  git -C "$AGENT_WORKSPACE" rev-parse --short HEAD
+)"
+git -C "$AGENT_WORKSPACE" status --short
+free -h
+df -h "$AGENT_WORKSPACE" "$LIVE_VOLUME"
+journalctl --no-pager -p warning \
+  -u colony-agent.service -u colony-autopilot.service -n 50

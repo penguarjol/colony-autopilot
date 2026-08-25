@@ -1,0 +1,5 @@
+Defaults:colony-agent secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+colony-agent ALL=(root) NOPASSWD: /usr/local/sbin/colony-agent-status ""
+colony-agent ALL=(root) NOPASSWD: /usr/local/sbin/colony-agent-deploy ""
+colony-agent ALL=(root) NOPASSWD: /usr/local/sbin/colony-agent-restart ""
+colony-agent ALL=(root) NOPASSWD: /usr/local/sbin/colony-agent-rollback ""

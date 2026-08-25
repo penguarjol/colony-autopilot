@@ -74,7 +74,12 @@ if [[ "$APPLY" != true ]]; then
   quote_command install -m 0644 \
     "$deploy_dir/systemd/ollama.service.d/colony-autopilot.conf" \
     /etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf
+  quote_command install -m 0440 "$deploy_dir/sudoers/colony-agent" \
+    /etc/sudoers.d/colony-agent
+  quote_command install -m 0755 "$deploy_dir/scripts/colony-agent-op" \
+    /usr/local/bin/colony-agent-op
   quote_command systemctl daemon-reload
+  quote_command systemctl enable --now colony-agent-operation.socket
   quote_command systemctl restart ollama.service
   [[ "$start_service" == true ]] &&
     quote_command systemctl enable --now colony-agent.service
@@ -86,11 +91,13 @@ require_command openssl
 require_command sha256sum
 require_command tar
 require_command ollama
+require_command visudo
 
 [[ -f "$deploy_dir/config/opencode.json" ]] ||
   die "missing OpenCode config"
 [[ -f "$deploy_dir/systemd/colony-agent.service" ]] ||
   die "missing colony-agent systemd unit"
+visudo -c -f "$deploy_dir/sudoers/colony-agent"
 
 if ! id colony-agent >/dev/null 2>&1; then
   useradd --system --home-dir "$agent_home" \
@@ -101,7 +108,10 @@ install -d -m 0750 -o colony-agent -g colony-agent \
   "$agent_home" "$agent_home/cache" "$agent_home/config" "$agent_home/data" \
   /var/log/colony-agent "$workspace_root"
 install -d -m 0755 /opt/colony-agent/bin /usr/local/lib/colony-agent
+install -d -m 0755 /usr/local/lib/colony-agent/ops/scripts \
+  /usr/local/lib/colony-agent/ops/lib
 install -d -m 0750 -o root -g colony-agent /etc/colony-agent
+install -d -m 0750 -o root -g colony-agent /var/lib/colony-agent-ops
 
 staging="$(mktemp -d)"
 trap 'rm -rf -- "$staging"' EXIT
@@ -143,6 +153,28 @@ install -m 0755 "$deploy_dir/scripts/run-colony-agent" \
   /usr/local/lib/colony-agent/run-colony-agent
 install -m 0755 "$deploy_dir/scripts/colony-agent-cli" \
   /usr/local/sbin/colony-agent-cli
+install -m 0755 "$deploy_dir/scripts/colony-agent-op" \
+  /usr/local/bin/colony-agent-op
+install -m 0755 "$deploy_dir/scripts/colony-agent-operation-dispatch" \
+  /usr/local/lib/colony-agent/operation-dispatch
+install -m 0755 "$deploy_dir/lib/agent-operations.sh" \
+  /usr/local/lib/colony-agent/agent-operations.sh
+install -m 0755 "$deploy_dir/lib/common.sh" \
+  /usr/local/lib/colony-agent/ops/lib/common.sh
+install -m 0755 "$deploy_dir/scripts/backup.sh" \
+  /usr/local/lib/colony-agent/ops/scripts/backup.sh
+install -m 0755 "$deploy_dir/scripts/install-bridge.sh" \
+  /usr/local/lib/colony-agent/ops/scripts/install-bridge.sh
+for operation in deploy restart rollback status; do
+  install -m 0755 "$deploy_dir/scripts/colony-agent-$operation" \
+    "/usr/local/sbin/colony-agent-$operation"
+done
+install -m 0440 "$deploy_dir/sudoers/colony-agent" \
+  /etc/sudoers.d/colony-agent
+install -m 0644 "$deploy_dir/systemd/colony-agent-operation.socket" \
+  /etc/systemd/system/colony-agent-operation.socket
+install -m 0644 "$deploy_dir/systemd/colony-agent-operation@.service" \
+  /etc/systemd/system/colony-agent-operation@.service
 
 if [[ ! -e /etc/colony-agent/agent.env ]]; then
   password="$(openssl rand -hex 24)"
@@ -168,6 +200,7 @@ for _ in {1..30}; do
 done
 [[ "$ollama_ready" == true ]] || die "Ollama did not become ready"
 ollama pull qwen3.5:4b
+systemctl enable --now colony-agent-operation.socket
 if command -v ufw >/dev/null 2>&1 &&
   ufw status | awk 'NR == 1 && $2 == "active" { found=1 } END { exit !found }'; then
   ufw allow from 192.168.1.0/24 to any port 4096 proto tcp \

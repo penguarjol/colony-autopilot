@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /usr/local/lib/colony-agent/agent-operations.sh
+operation_setup "$@"
+require_live_services
+create_release_backup
+stop_live_services
+
+if ! backup_live_world; then
+  started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  start_live_services
+  health_check "$started_at"
+  operation_die "restart backup failed"
+  exit 1
+fi
+
+started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+start_live_services
+health_check "$started_at"
+operation_log "verified live service restart"

@@ -1,0 +1,13 @@
+[Unit]
+Description=Local coding agent privileged operation socket
+
+[Socket]
+ListenStream=/run/colony-agent-operation.sock
+SocketUser=root
+SocketGroup=colony-agent
+SocketMode=0660
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

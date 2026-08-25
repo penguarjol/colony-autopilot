@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /usr/local/lib/colony-agent/agent-operations.sh
+operation_setup "$@"
+require_live_services
+
+state_file="$AGENT_STATE_ROOT/last-deploy.env"
+[[ -f "$state_file" && ! -L "$state_file" ]] ||
+  operation_die "no trusted deployment state is available"
+[[ "$(stat -c '%U:%G %a' "$state_file")" == "root:colony-agent 640" ]] ||
+  operation_die "deployment state permissions are unsafe"
+source "$state_file"
+
+[[ "${DEPLOY_STATUS:-}" == success ]] ||
+  operation_die "last deployment is not rollback-eligible"
+[[ "$BRIDGE_BACKUP" == "$AGENT_BACKUP_ROOT/bridge/$LIVE_CONTAINER/"* ]] ||
+  operation_die "bridge rollback path is outside the managed backup root"
+[[ "$RELEASE_BACKUP" == "$AGENT_BACKUP_ROOT/agent-deploy/"* ]] ||
+  operation_die "controller rollback path is outside the managed backup root"
+[[ -d "$BRIDGE_BACKUP" && -d "$RELEASE_BACKUP/controller" ]] ||
+  operation_die "rollback backup is incomplete"
+
+rollback_deployment "$BRIDGE_BACKUP" "$RELEASE_BACKUP/controller"
+printf 'DEPLOY_STATUS=rolled_back\nDEPLOY_HEAD=%s\n' "$DEPLOY_HEAD" \
+  >"$AGENT_AUDIT_ROOT/rollback-$(date -u '+%Y%m%dT%H%M%SZ').env"
+operation_log "rolled back deployment $DEPLOY_HEAD"

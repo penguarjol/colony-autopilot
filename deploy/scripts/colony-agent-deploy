@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /usr/local/lib/colony-agent/agent-operations.sh
+operation_setup "$@"
+require_live_services
+validate_workspace
+run_verification
+
+artifact="$(current_bridge_jar)"
+artifact_checksum="$(sha256sum "$artifact" | awk '{print $1}')"
+create_release_backup
+stop_live_services
+
+if ! backup_live_world; then
+  started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  start_live_services
+  health_check "$started_at"
+  operation_die "deployment backup failed"
+  exit 1
+fi
+
+bridge_backup_before="$(latest_bridge_backup 2>/dev/null || true)"
+if ! install_verified_release "$artifact" "$artifact_checksum"; then
+  bridge_backup_after="$(latest_bridge_backup 2>/dev/null || true)"
+  if [[ -n "$bridge_backup_after" &&
+    "$bridge_backup_after" != "$bridge_backup_before" ]]; then
+    rollback_deployment \
+      "$bridge_backup_after" "$RELEASE_BACKUP/controller"
+  else
+    started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    start_live_services
+    health_check "$started_at"
+  fi
+  operation_die "release installation failed"
+  exit 1
+fi
+
+bridge_backup="$(latest_bridge_backup)"
+started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+start_live_services
+if ! health_check "$started_at"; then
+  operation_log "post-deploy health check failed; rolling back"
+  rollback_deployment "$bridge_backup" "$RELEASE_BACKUP/controller"
+  operation_die "deployment rolled back after failed health check"
+  exit 1
+fi
+
+write_deployment_state "$bridge_backup" "$artifact_checksum"
+operation_log "deployed $DEPLOY_HEAD with artifact $artifact_checksum"

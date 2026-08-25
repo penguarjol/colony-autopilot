@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -u
+
+if ! IFS= read -r operation; then
+  printf 'missing operation\n'
+  printf '__COLONY_AGENT_EXIT__=64\n'
+  exit 0
+fi
+if IFS= read -r extra || [[ -n "${extra:-}" ]]; then
+  printf 'operation accepts one command\n'
+  printf '__COLONY_AGENT_EXIT__=64\n'
+  exit 0
+fi
+
+case "$operation" in
+  status|deploy|restart|rollback)
+    "/usr/local/sbin/colony-agent-$operation" 2>&1
+    status=$?
+    ;;
+  *)
+    printf 'unsupported operation: %s\n' "$operation"
+    status=64
+    ;;
+esac
+
+printf '__COLONY_AGENT_EXIT__=%s\n' "$status"
+exit 0

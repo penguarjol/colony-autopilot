@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+operation="${1:-}"
+(($# == 1)) || {
+  printf 'usage: colony-agent-op status|deploy|restart|rollback\n' >&2
+  exit 64
+}
+case "$operation" in
+  status|deploy|restart|rollback) ;;
+  *)
+    printf 'unsupported operation: %s\n' "$operation" >&2
+    exit 64
+    ;;
+esac
+
+exec python3 - "$operation" <<'PY'
+import socket
+import sys
+
+marker = "__COLONY_AGENT_EXIT__="
+status = None
+
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    client.connect("/run/colony-agent-operation.sock")
+    client.sendall(f"{sys.argv[1]}\n".encode())
+    client.shutdown(socket.SHUT_WR)
+    with client.makefile(encoding="utf-8", errors="replace") as response:
+        for line in response:
+            if line.startswith(marker):
+                status = int(line.removeprefix(marker).strip())
+            else:
+                print(line, end="", flush=True)
+
+if status is None:
+    raise SystemExit("operation broker closed without a result")
+raise SystemExit(status)
+PY

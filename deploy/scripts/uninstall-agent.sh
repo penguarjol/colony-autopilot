@@ -59,13 +59,27 @@ require_apply_root
 
 managed_paths=(
   /etc/systemd/system/colony-agent.service
+  /etc/systemd/system/colony-agent-operation.socket
+  /etc/systemd/system/colony-agent-operation@.service
+  /etc/sudoers.d/colony-agent
   /usr/local/lib/colony-agent/run-colony-agent
+  /usr/local/lib/colony-agent/operation-dispatch
+  /usr/local/lib/colony-agent/agent-operations.sh
+  /usr/local/lib/colony-agent/ops/lib/common.sh
+  /usr/local/lib/colony-agent/ops/scripts/backup.sh
+  /usr/local/lib/colony-agent/ops/scripts/install-bridge.sh
+  /usr/local/bin/colony-agent-op
   /usr/local/sbin/colony-agent-cli
+  /usr/local/sbin/colony-agent-deploy
+  /usr/local/sbin/colony-agent-restart
+  /usr/local/sbin/colony-agent-rollback
+  /usr/local/sbin/colony-agent-status
   /opt/colony-agent/bin/opencode
 )
 
 if [[ "$APPLY" != true ]]; then
   quote_command systemctl disable --now colony-agent.service
+  quote_command systemctl disable --now colony-agent-operation.socket
   for path in "${managed_paths[@]}"; do
     quote_command rm -f -- "$path"
   done
@@ -77,13 +91,14 @@ if [[ "$APPLY" != true ]]; then
       "$DEFAULT_BACKUP_ROOT/colony-agent-purge-$(timestamp_utc).tar.gz" \
       /etc/colony-agent /var/lib/colony-agent /srv/colony-agent
     quote_command rm -rf -- /etc/colony-agent /var/lib/colony-agent \
-      /var/log/colony-agent /srv/colony-agent
+      /var/lib/colony-agent-ops /var/log/colony-agent /srv/colony-agent
     quote_command userdel colony-agent
   fi
   exit 0
 fi
 
 systemctl disable --now colony-agent.service 2>/dev/null || true
+systemctl disable --now colony-agent-operation.socket 2>/dev/null || true
 rm -f -- "${managed_paths[@]}"
 if command -v ufw >/dev/null 2>&1; then
   ufw delete allow from 192.168.1.0/24 to any port 4096 proto tcp \
@@ -96,7 +111,7 @@ if [[ "$purge" == true ]]; then
   tar -czf "$archive" --ignore-failed-read \
     /etc/colony-agent /var/lib/colony-agent /srv/colony-agent
   rm -rf -- /etc/colony-agent /var/lib/colony-agent \
-    /var/log/colony-agent /srv/colony-agent
+    /var/lib/colony-agent-ops /var/log/colony-agent /srv/colony-agent
   id colony-agent >/dev/null 2>&1 && userdel colony-agent
 fi
 
