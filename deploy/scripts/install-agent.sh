@@ -11,6 +11,8 @@ readonly opencode_sha256="23eca6a892c6b53c0f9ba2333b6906bdc31902634631d54cf17500
 readonly gradle_version="8.8"
 readonly gradle_url="https://services.gradle.org/distributions/gradle-${gradle_version}-bin.zip"
 readonly gradle_sha256="a4b4158601f8636cdeeab09bd76afb640030bb5b144aafe261a5e8af027dc612"
+readonly java_url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz"
+readonly java_sha256="3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e"
 readonly agent_home="/var/lib/colony-agent"
 readonly workspace_root="/srv/colony-agent/workspaces"
 readonly agent_workspace="$workspace_root/colony-autopilot"
@@ -72,6 +74,9 @@ if [[ "$APPLY" != true ]]; then
   quote_command curl -fsSL "$gradle_url" -o /tmp/gradle.zip
   quote_command sha256sum /tmp/gradle.zip
   quote_command unzip -q /tmp/gradle.zip -d /opt/colony-agent/gradle
+  quote_command curl -fsSL "$java_url" -o /tmp/temurin.tar.gz
+  quote_command sha256sum /tmp/temurin.tar.gz
+  quote_command tar -xzf /tmp/temurin.tar.gz -C /opt/colony-agent/java
   quote_command ollama pull qwen3.5:4b
   quote_command install -m 0640 "$deploy_dir/config/opencode.json" \
     /etc/colony-agent/opencode.json
@@ -144,6 +149,18 @@ unzip -q "$gradle_archive" -d "$staging"
 install -d -m 0755 /opt/colony-agent/gradle
 rm -rf -- "/opt/colony-agent/gradle/gradle-$gradle_version"
 cp -a "$staging/gradle-$gradle_version" /opt/colony-agent/gradle/
+
+java_archive="$staging/temurin.tar.gz"
+curl -fsSL "$java_url" -o "$java_archive"
+printf '%s  %s\n' "$java_sha256" "$java_archive" | sha256sum -c -
+tar -xzf "$java_archive" -C "$staging"
+shopt -s nullglob
+java_candidates=("$staging"/jdk-17*)
+shopt -u nullglob
+((${#java_candidates[@]} == 1)) ||
+  die "Temurin archive did not contain one JDK directory"
+rm -rf -- /opt/colony-agent/java
+cp -a "${java_candidates[0]}" /opt/colony-agent/java
 
 backup_root="$DEFAULT_BACKUP_ROOT/agent-install-$(timestamp_utc)"
 install -d -m 0750 "$backup_root"
@@ -225,6 +242,8 @@ done
 ollama pull qwen3.5:4b
 if [[ -d "$agent_workspace/.git" ]]; then
   runuser -u colony-agent -- env HOME="$agent_home" \
+    JAVA_HOME=/opt/colony-agent/java \
+    PATH=/opt/colony-agent/java/bin:/usr/local/bin:/usr/bin:/bin \
     "/opt/colony-agent/gradle/gradle-$gradle_version/bin/gradle" \
     -p "$agent_workspace/bridge" --no-daemon testClasses
 fi

@@ -50,6 +50,8 @@ grep -Fq '23eca6a892c6b53c0f9ba2333b6906bdc31902634631d54cf17500e7e8cbfa20' \
   "$repo_root/deploy/scripts/install-agent.sh"
 grep -Fq 'a4b4158601f8636cdeeab09bd76afb640030bb5b144aafe261a5e8af027dc612' \
   "$repo_root/deploy/scripts/install-agent.sh"
+grep -Fq '3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e' \
+  "$repo_root/deploy/scripts/install-agent.sh"
 grep -Fq 'zz-colony-autopilot.conf' \
   "$repo_root/deploy/scripts/install-agent.sh"
 grep -Fq 'Ollama did not become ready' \

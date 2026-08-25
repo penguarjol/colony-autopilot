@@ -80,6 +80,7 @@ grep -Fq 'rollback_deployment' "$operations"
 grep -Fq 'health_check' "$operations"
 grep -Fq 'require_deploy_authority' "$operations"
 grep -Fq '/opt/colony-agent/gradle/gradle-8.8/bin/gradle' "$operations"
+grep -Fq 'JAVA_HOME=/opt/colony-agent/java' "$operations"
 grep -Fq -- '--offline' "$operations"
 if grep -Fq './bridge/gradlew' "$operations"; then
   printf 'agent operations reference a missing Gradle wrapper\n' >&2

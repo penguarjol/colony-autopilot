@@ -43,7 +43,8 @@ require_deploy_authority() {
 run_as_agent() {
   runuser -u colony-agent -- env \
     HOME=/var/lib/colony-agent \
-    PATH=/usr/local/bin:/usr/bin:/bin \
+    JAVA_HOME=/opt/colony-agent/java \
+    PATH=/opt/colony-agent/java/bin:/usr/local/bin:/usr/bin:/bin \
     "$@"
 }
 

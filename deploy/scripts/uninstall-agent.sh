@@ -86,6 +86,7 @@ if [[ "$APPLY" != true ]]; then
     quote_command rm -f -- "$path"
   done
   quote_command rm -rf -- /opt/colony-agent/gradle
+  quote_command rm -rf -- /opt/colony-agent/java
   quote_command ufw delete allow from 192.168.1.0/24 \
     to any port 4096 proto tcp
   [[ "$remove_model" == true ]] && quote_command ollama rm qwen3.5:4b
@@ -104,6 +105,7 @@ systemctl disable --now colony-agent.service 2>/dev/null || true
 systemctl disable --now colony-agent-operation.socket 2>/dev/null || true
 rm -f -- "${managed_paths[@]}"
 rm -rf -- /opt/colony-agent/gradle
+rm -rf -- /opt/colony-agent/java
 if command -v ufw >/dev/null 2>&1; then
   ufw delete allow from 192.168.1.0/24 to any port 4096 proto tcp \
     >/dev/null 2>&1 || true
