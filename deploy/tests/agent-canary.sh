@@ -38,6 +38,11 @@ if id -nG | tr ' ' '\n' | grep -Eq '^(docker|pterodactyl)$'; then
 fi
 
 source /etc/colony-agent/agent.env
+export HOME=/var/lib/colony-agent
+export XDG_CACHE_HOME="$HOME/cache"
+export XDG_CONFIG_HOME="$HOME/config"
+export XDG_DATA_HOME="$HOME/data"
+export OPENCODE_CONFIG=/etc/colony-agent/opencode.json
 canary_root="$(mktemp -d /srv/colony-agent/workspaces/.capability.XXXXXXXX)"
 run_log="/var/lib/colony-agent/canary-$(date -u '+%Y%m%dT%H%M%SZ').json"
 trap 'rm -rf -- "$canary_root"' EXIT
@@ -63,9 +68,6 @@ and rerun all tests. Do not edit README.md or access any path outside this
 repository. Do not commit the change.'
 
 timeout 900 /opt/colony-agent/bin/opencode run \
-  --attach "http://$COLONY_AGENT_HOST:$COLONY_AGENT_PORT" \
-  --username "$OPENCODE_SERVER_USERNAME" \
-  --password "$OPENCODE_SERVER_PASSWORD" \
   --dir "$canary_root" \
   --model ollama/qwen3.5:4b \
   --auto \

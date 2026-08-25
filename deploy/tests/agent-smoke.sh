@@ -72,5 +72,11 @@ grep -Fq 'cd /srv/colony-agent/workspaces/colony-autopilot' \
   "$repo_root/deploy/scripts/colony-agent-cli"
 grep -Fq '"http://$COLONY_AGENT_HOST:$COLONY_AGENT_PORT"' \
   "$repo_root/deploy/scripts/colony-agent-cli"
+grep -Fq 'OPENCODE_CONFIG=/etc/colony-agent/opencode.json' \
+  "$repo_root/deploy/tests/agent-canary.sh"
+if grep -Fq -- '--attach' "$repo_root/deploy/tests/agent-canary.sh"; then
+  printf 'capability canary must not use broken remote-directory attach\n' >&2
+  exit 1
+fi
 
 printf 'local coding agent artifact smoke tests passed\n'
