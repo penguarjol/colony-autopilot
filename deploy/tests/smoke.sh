@@ -7,6 +7,7 @@ required_files=(
   README.md
   deploy/config/autopilot.env
   deploy/config/controller.toml
+  deploy/config/opencode.json
   deploy/integration/server-service-map.snippet.sh
   deploy/lib/common.sh
   deploy/scripts/autopilotctl
@@ -15,10 +16,15 @@ required_files=(
   deploy/scripts/clone-world.sh
   deploy/scripts/colony-autopilot
   deploy/scripts/install-bridge.sh
+  deploy/scripts/install-agent.sh
   deploy/scripts/install.sh
   deploy/scripts/run-autopilot
+  deploy/scripts/run-colony-agent
+  deploy/scripts/colony-agent-cli
+  deploy/scripts/uninstall-agent.sh
   deploy/scripts/uninstall.sh
   deploy/systemd/colony-autopilot.service
+  deploy/systemd/colony-agent.service
   deploy/systemd/ollama.service.d/colony-autopilot.conf
 )
 
@@ -42,8 +48,12 @@ shell_scripts=(
   deploy/scripts/clone-world.sh
   deploy/scripts/colony-autopilot
   deploy/scripts/install-bridge.sh
+  deploy/scripts/install-agent.sh
   deploy/scripts/install.sh
   deploy/scripts/run-autopilot
+  deploy/scripts/run-colony-agent
+  deploy/scripts/colony-agent-cli
+  deploy/scripts/uninstall-agent.sh
   deploy/scripts/uninstall.sh
   deploy/tests/smoke.sh
 )
@@ -51,8 +61,9 @@ for script in "${shell_scripts[@]}"; do
   bash -n "$repo_root/$script"
 done
 
-for script in install.sh install-bridge.sh uninstall.sh backup.sh clone-world.sh benchmark.sh; do
-  output="$("$repo_root/deploy/scripts/$script" --help)"
+for script in install.sh install-bridge.sh install-agent.sh uninstall.sh \
+  uninstall-agent.sh backup.sh clone-world.sh benchmark.sh; do
+  output="$(bash "$repo_root/deploy/scripts/$script" --help)"
   [[ "$output" == *"--apply"* ]] || {
     printf '%s does not document --apply\n' "$script" >&2
     exit 1
@@ -122,8 +133,10 @@ grep -Fq 'OLLAMA_NUM_PARALLEL=1' \
   "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
 grep -Fq 'OLLAMA_MAX_LOADED_MODELS=1' \
   "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
+grep -Fq 'OLLAMA_CONTEXT_LENGTH=65536' \
+  "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
 grep -Fq 'CPUQuota=150%' "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
-grep -Fq 'MemoryMax=3G' "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
+grep -Fq 'MemoryMax=6G' "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
 
 if grep -R -E '(level\.dat|\.mca|NBT)' "$repo_root/deploy/scripts" >/dev/null; then
   printf 'deployment scripts must not read or edit Minecraft world formats\n' >&2
@@ -165,5 +178,7 @@ fi
 PATH="$idle_test_root:$PATH" TEST_DOCKER_MOUNT="$idle_test_root/other" \
   bash -c 'source "$1"; ensure_volume_idle "$2" false' \
   _ "$repo_root/deploy/lib/common.sh" "$idle_test_root/volume"
+
+bash "$repo_root/deploy/tests/agent-smoke.sh"
 
 printf 'deployment artifact smoke tests passed\n'

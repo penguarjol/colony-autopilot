@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || {
+  printf 'run with sudo: sudo colony-agent-cli\n' >&2
+  exit 1
+}
+
+source /etc/colony-agent/agent.env
+
+exec runuser -u colony-agent -- env \
+  HOME=/var/lib/colony-agent \
+  XDG_CACHE_HOME=/var/lib/colony-agent/cache \
+  XDG_CONFIG_HOME=/var/lib/colony-agent/config \
+  XDG_DATA_HOME=/var/lib/colony-agent/data \
+  OPENCODE_CONFIG=/etc/colony-agent/opencode.json \
+  OPENCODE_SERVER_USERNAME="$OPENCODE_SERVER_USERNAME" \
+  OPENCODE_SERVER_PASSWORD="$OPENCODE_SERVER_PASSWORD" \
+  /opt/colony-agent/bin/opencode attach \
+  "http://127.0.0.1:$COLONY_AGENT_PORT"

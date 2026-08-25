@@ -1,0 +1,48 @@
+[Unit]
+Description=Local Colony coding agent
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+
+[Service]
+Type=simple
+User=colony-agent
+Group=colony-agent
+EnvironmentFile=/etc/colony-agent/agent.env
+WorkingDirectory=/srv/colony-agent/workspaces/colony-autopilot
+ExecStart=/usr/local/lib/colony-agent/run-colony-agent
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+StateDirectory=colony-agent
+LogsDirectory=colony-agent
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=192.168.1.0/24
+ReadWritePaths=/srv/colony-agent/workspaces /var/lib/colony-agent /var/log/colony-agent
+
+[Install]
+WantedBy=multi-user.target

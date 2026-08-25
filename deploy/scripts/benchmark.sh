@@ -71,7 +71,7 @@ if [[ "$APPLY" != true ]]; then
     --data '{"model":"phi3:mini","stream":false,"keep_alive":0,"options":{"num_predict":8},"prompt":"Reply with exactly OK."}'
   quote_command curl --fail --silent --show-error \
     "$ollama_url/api/generate" \
-    --data '{"model":"qwen2.5-coder:3b","stream":false,"keep_alive":0,"options":{"num_predict":8},"prompt":"Reply with exactly OK."}'
+    --data '{"model":"qwen3.5:4b","stream":false,"keep_alive":0,"options":{"num_predict":8},"prompt":"Reply with exactly OK."}'
   log "dry-run: requests run sequentially and keep_alive is zero"
   exit 0
 fi
@@ -92,8 +92,8 @@ service_properties="$(
 printf '%s\n' "$service_properties"
 grep -Eq '^CPUQuotaPerSecUSec=1[.]5(00000)?s$' <<<"$service_properties" ||
   die "Ollama CPUQuota is not 150%"
-grep -Fqx 'MemoryMax=3221225472' <<<"$service_properties" ||
-  die "Ollama MemoryMax is not 3G"
+grep -Fqx 'MemoryMax=6442450944' <<<"$service_properties" ||
+  die "Ollama MemoryMax is not 6G"
 grep -Fqx 'Nice=10' <<<"$service_properties" ||
   die "Ollama Nice is not 10"
 grep -Fqx 'IOSchedulingClass=3' <<<"$service_properties" ||
@@ -111,7 +111,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     names = {model["name"] for model in json.load(handle).get("models", [])}
 
-required = {"phi3:mini", "qwen2.5-coder:3b"}
+required = {"phi3:mini", "qwen3.5:4b"}
 missing = required - names
 if missing:
     raise SystemExit(f"missing required Ollama models: {', '.join(sorted(missing))}")
@@ -149,5 +149,5 @@ PY
 }
 
 benchmark_model phi3:mini "$phi_limit"
-benchmark_model qwen2.5-coder:3b "$coder_limit"
+benchmark_model qwen3.5:4b "$coder_limit"
 log "performance acceptance benchmark passed"
