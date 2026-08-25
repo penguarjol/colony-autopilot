@@ -52,5 +52,7 @@ grep -Fq 'git -C "$verification_repository" bundle verify' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
 grep -Fq 'repository_root="/srv/colony-agent/repositories"' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
+grep -Fq 'rmdir --ignore-fail-on-non-empty "$workspace"' \
+  "$repo_root/deploy/scripts/init-agent-workspace.sh"
 
 printf 'local coding agent artifact smoke tests passed\n'

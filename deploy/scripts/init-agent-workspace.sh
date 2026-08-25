@@ -118,6 +118,10 @@ else
     "refs/heads/$branch:refs/heads/$branch"
 fi
 
+if [[ -d "$workspace" && ! -e "$workspace/.git" ]]; then
+  rmdir --ignore-fail-on-non-empty "$workspace"
+fi
+
 if [[ ! -e "$workspace" ]]; then
   git clone "$bare_repository" "$workspace"
   git -C "$workspace" switch "$branch"

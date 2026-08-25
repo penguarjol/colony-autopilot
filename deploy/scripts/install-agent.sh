@@ -62,7 +62,7 @@ if [[ "$APPLY" != true ]]; then
     --shell /usr/sbin/nologin colony-agent
   quote_command install -d -m 0750 -o colony-agent -g colony-agent \
     "$agent_home" "$agent_home/cache" "$agent_home/config" "$agent_home/data" \
-    /var/log/colony-agent "$workspace_root" "$agent_workspace"
+    /var/log/colony-agent "$workspace_root"
   quote_command curl -fsSL "$opencode_url" -o /tmp/opencode.tar.gz
   quote_command sha256sum /tmp/opencode.tar.gz
   quote_command install -m 0755 opencode /opt/colony-agent/bin/opencode
@@ -99,7 +99,7 @@ fi
 
 install -d -m 0750 -o colony-agent -g colony-agent \
   "$agent_home" "$agent_home/cache" "$agent_home/config" "$agent_home/data" \
-  /var/log/colony-agent "$workspace_root" "$agent_workspace"
+  /var/log/colony-agent "$workspace_root"
 install -d -m 0755 /opt/colony-agent/bin /usr/local/lib/colony-agent
 install -d -m 0750 -o root -g colony-agent /etc/colony-agent
 
