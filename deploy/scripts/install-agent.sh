@@ -115,6 +115,7 @@ install -d -m 0755 /usr/local/lib/colony-agent/ops/scripts \
   /usr/local/lib/colony-agent/ops/lib /usr/local/lib/colony-agent/ops/tests
 install -d -m 0750 -o root -g colony-agent /etc/colony-agent
 install -d -m 0750 -o root -g colony-agent /var/lib/colony-agent-ops
+rm -f -- /var/lib/colony-agent-ops/deploy-enabled
 
 staging="$(mktemp -d)"
 trap 'rm -rf -- "$staging"' EXIT

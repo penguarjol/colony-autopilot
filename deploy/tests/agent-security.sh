@@ -77,6 +77,8 @@ grep -Fq 'INSTALL_BRIDGE_ON_LIVE_VOLUME' "$operations"
 grep -Fq 'rollback_deployment' "$operations"
 grep -Fq 'health_check' "$operations"
 grep -Fq 'require_deploy_authority' "$operations"
+grep -Fq 'rm -f -- /var/lib/colony-agent-ops/deploy-enabled' \
+  "$repo_root/deploy/scripts/install-agent.sh"
 for operation in deploy restart rollback; do
   grep -Fq 'require_deploy_authority' \
     "$repo_root/deploy/scripts/colony-agent-$operation"
