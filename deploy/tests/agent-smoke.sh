@@ -56,5 +56,7 @@ grep -Fq 'rmdir --ignore-fail-on-non-empty "$workspace"' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
 grep -Fq 'cd /srv/colony-agent/workspaces/colony-autopilot' \
   "$repo_root/deploy/scripts/colony-agent-cli"
+grep -Fq '"http://$COLONY_AGENT_HOST:$COLONY_AGENT_PORT"' \
+  "$repo_root/deploy/scripts/colony-agent-cli"
 
 printf 'local coding agent artifact smoke tests passed\n'

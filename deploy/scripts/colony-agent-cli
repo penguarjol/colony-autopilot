@@ -18,4 +18,4 @@ exec runuser -u colony-agent -- env \
   OPENCODE_SERVER_USERNAME="$OPENCODE_SERVER_USERNAME" \
   OPENCODE_SERVER_PASSWORD="$OPENCODE_SERVER_PASSWORD" \
   /opt/colony-agent/bin/opencode attach \
-  "http://127.0.0.1:$COLONY_AGENT_PORT"
+  "http://$COLONY_AGENT_HOST:$COLONY_AGENT_PORT"
