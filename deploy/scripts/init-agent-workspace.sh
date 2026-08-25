@@ -13,14 +13,11 @@ bundle=""
 branch=""
 
 workspace_git() {
-  git -c safe.directory="$workspace" \
-    -c safe.directory="$bare_repository" \
-    -C "$workspace" "$@"
+  runuser -u colony-agent -- git -C "$workspace" "$@"
 }
 
 bare_git() {
-  git -c safe.directory="$bare_repository" \
-    --git-dir="$bare_repository" "$@"
+  runuser -u colony-agent -- git --git-dir="$bare_repository" "$@"
 }
 
 usage() {

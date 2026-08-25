@@ -38,12 +38,11 @@ run_as_agent() {
 }
 
 agent_workspace_git() {
-  git -c safe.directory="$AGENT_WORKSPACE" -C "$AGENT_WORKSPACE" "$@"
+  run_as_agent git -C "$AGENT_WORKSPACE" "$@"
 }
 
 agent_bare_git() {
-  git -c safe.directory="$AGENT_BARE_REPOSITORY" \
-    --git-dir="$AGENT_BARE_REPOSITORY" "$@"
+  run_as_agent git --git-dir="$AGENT_BARE_REPOSITORY" "$@"
 }
 
 validate_workspace() {
