@@ -48,7 +48,7 @@ grep -Fq 'zz-colony-autopilot.conf' \
   "$repo_root/deploy/scripts/install-agent.sh"
 grep -Fq 'Ollama did not become ready' \
   "$repo_root/deploy/scripts/install-agent.sh"
-grep -Fq 'git bundle verify' \
+grep -Fq 'git -C "$verification_repository" bundle verify' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"
 grep -Fq 'repository_root="/srv/colony-agent/repositories"' \
   "$repo_root/deploy/scripts/init-agent-workspace.sh"

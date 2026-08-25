@@ -78,10 +78,12 @@ require_command git
 require_command sha256sum
 id colony-agent >/dev/null 2>&1 ||
   die "colony-agent user does not exist; run install-agent.sh first"
-git bundle verify "$bundle"
 
 inspection_root="$(mktemp -d)"
 trap 'rm -rf -- "$inspection_root"' EXIT
+verification_repository="$inspection_root/verify.git"
+git init --bare --quiet "$verification_repository"
+git -C "$verification_repository" bundle verify "$bundle"
 git clone --bare "$bundle" "$inspection_root/repository.git"
 git --git-dir="$inspection_root/repository.git" \
   rev-parse --verify "refs/heads/$branch" >/dev/null ||
