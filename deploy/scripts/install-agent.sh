@@ -8,6 +8,9 @@ source "$deploy_dir/lib/common.sh"
 readonly opencode_version="1.18.22"
 readonly opencode_url="https://github.com/anomalyco/opencode/releases/download/v${opencode_version}/opencode-linux-x64.tar.gz"
 readonly opencode_sha256="23eca6a892c6b53c0f9ba2333b6906bdc31902634631d54cf17500e7e8cbfa20"
+readonly gradle_version="8.8"
+readonly gradle_url="https://services.gradle.org/distributions/gradle-${gradle_version}-bin.zip"
+readonly gradle_sha256="a4b4158601f8636cdeeab09bd76afb640030bb5b144aafe261a5e8af027dc612"
 readonly agent_home="/var/lib/colony-agent"
 readonly workspace_root="/srv/colony-agent/workspaces"
 readonly agent_workspace="$workspace_root/colony-autopilot"
@@ -66,6 +69,9 @@ if [[ "$APPLY" != true ]]; then
   quote_command curl -fsSL "$opencode_url" -o /tmp/opencode.tar.gz
   quote_command sha256sum /tmp/opencode.tar.gz
   quote_command install -m 0755 opencode /opt/colony-agent/bin/opencode
+  quote_command curl -fsSL "$gradle_url" -o /tmp/gradle.zip
+  quote_command sha256sum /tmp/gradle.zip
+  quote_command unzip -q /tmp/gradle.zip -d /opt/colony-agent/gradle
   quote_command ollama pull qwen3.5:4b
   quote_command install -m 0640 "$deploy_dir/config/opencode.json" \
     /etc/colony-agent/opencode.json
@@ -93,6 +99,7 @@ require_command curl
 require_command openssl
 require_command sha256sum
 require_command tar
+require_command unzip
 require_command ollama
 require_command visudo
 
@@ -129,6 +136,14 @@ shopt -u nullglob
 ((${#candidates[@]} == 1)) ||
   die "OpenCode archive did not contain one opencode binary"
 install -D -m 0755 "${candidates[0]}" /opt/colony-agent/bin/opencode
+
+gradle_archive="$staging/gradle.zip"
+curl -fsSL "$gradle_url" -o "$gradle_archive"
+printf '%s  %s\n' "$gradle_sha256" "$gradle_archive" | sha256sum -c -
+unzip -q "$gradle_archive" -d "$staging"
+install -d -m 0755 /opt/colony-agent/gradle
+rm -rf -- "/opt/colony-agent/gradle/gradle-$gradle_version"
+cp -a "$staging/gradle-$gradle_version" /opt/colony-agent/gradle/
 
 backup_root="$DEFAULT_BACKUP_ROOT/agent-install-$(timestamp_utc)"
 install -d -m 0750 "$backup_root"
@@ -208,6 +223,11 @@ for _ in {1..30}; do
 done
 [[ "$ollama_ready" == true ]] || die "Ollama did not become ready"
 ollama pull qwen3.5:4b
+if [[ -d "$agent_workspace/.git" ]]; then
+  runuser -u colony-agent -- env HOME="$agent_home" \
+    "/opt/colony-agent/gradle/gradle-$gradle_version/bin/gradle" \
+    -p "$agent_workspace/bridge" --no-daemon testClasses
+fi
 systemctl enable --now colony-agent-operation.socket
 if command -v ufw >/dev/null 2>&1 &&
   ufw status | awk 'NR == 1 && $2 == "active" { found=1 } END { exit !found }'; then

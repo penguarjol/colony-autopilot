@@ -79,6 +79,12 @@ grep -Fq 'INSTALL_BRIDGE_ON_LIVE_VOLUME' "$operations"
 grep -Fq 'rollback_deployment' "$operations"
 grep -Fq 'health_check' "$operations"
 grep -Fq 'require_deploy_authority' "$operations"
+grep -Fq '/opt/colony-agent/gradle/gradle-8.8/bin/gradle' "$operations"
+grep -Fq -- '--offline' "$operations"
+if grep -Fq './bridge/gradlew' "$operations"; then
+  printf 'agent operations reference a missing Gradle wrapper\n' >&2
+  exit 1
+fi
 grep -Fq 'rm -f -- /var/lib/colony-agent-ops/deploy-enabled' \
   "$repo_root/deploy/scripts/install-agent.sh"
 for operation in deploy restart rollback; do

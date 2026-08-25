@@ -77,7 +77,8 @@ run_verification() {
   run_as_agent bash -c '
     set -euo pipefail
     cd "$1"
-    ./bridge/gradlew -p bridge --no-daemon clean test build
+    /opt/colony-agent/gradle/gradle-8.8/bin/gradle \
+      -p bridge --no-daemon --offline clean test build
     python3 -m unittest discover -s controller/tests
     bash deploy/tests/smoke.sh
     bash deploy/tests/agent-security.sh
