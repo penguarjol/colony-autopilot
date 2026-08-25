@@ -1,5 +1,6 @@
 package com.colonyautopilot.bridge.runtime;
 
+import com.colonyautopilot.bridge.ColonyAutopilotBridge;
 import com.ldtteam.structurize.placement.AbstractBlueprintIterator;
 import com.ldtteam.structurize.placement.StructurePlacer;
 import com.ldtteam.structurize.placement.handlers.placement.IPlacementHandler;
@@ -7,8 +8,11 @@ import com.ldtteam.structurize.placement.handlers.placement.PlacementHandlers;
 import com.ldtteam.structurize.util.BlockInfo;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.Tuple;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.entity.Entity;
@@ -17,8 +21,12 @@ import net.minecraft.world.entity.decoration.HangingEntity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.lang.reflect.InvocationTargetException;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 final class BlueprintSemanticVerifier {
     private BlueprintSemanticVerifier() {
@@ -75,13 +83,37 @@ final class BlueprintSemanticVerifier {
                 }
                 return failed(progress, iterator, checked, worldPosition);
             }
-            boolean blockMatches = IPlacementHandler
+            boolean canonicalBlockMatch = IPlacementHandler
                 .doesWorldStateMatchBlueprintState(
                     block,
                     worldPosition,
                     placer.getHandler()
-                ) || matchesContextualState(placer, block, worldPosition);
-            if (!blockMatches || !entitiesMatch(placer, localPosition)) {
+                );
+            boolean contextualBlockMatch = matchesContextualState(
+                placer,
+                block,
+                localPosition,
+                worldPosition
+            );
+            boolean entityMatch = entitiesMatch(placer, localPosition);
+            if ((!canonicalBlockMatch && !contextualBlockMatch) || !entityMatch) {
+                ColonyAutopilotBridge.LOGGER.error(
+                    "Semantic deadline mismatch at {} local {}: expected={}, actual={}, "
+                        + "tile={}, entities={}, canonicalBlockMatch={}, "
+                        + "contextualBlockMatch={}, entityMatch={}",
+                    worldPosition,
+                    localPosition,
+                    block.getState(),
+                    placer.getHandler().getWorld().getBlockState(worldPosition),
+                    block.hasTileEntityData(),
+                    placer.getIterator()
+                        .getBluePrintPositionInfo(localPosition)
+                        .getEntities()
+                        .length,
+                    canonicalBlockMatch,
+                    contextualBlockMatch,
+                    entityMatch
+                );
                 return failed(progress, iterator, checked, worldPosition);
             }
         }
@@ -181,6 +213,7 @@ final class BlueprintSemanticVerifier {
     private static boolean matchesContextualState(
         StructurePlacer placer,
         BlockInfo block,
+        BlockPos localPosition,
         BlockPos worldPosition
     ) {
         var handler = placer.getHandler();
@@ -189,16 +222,54 @@ final class BlueprintSemanticVerifier {
         BlockState actual = level.getBlockState(worldPosition);
         String expectedId = BuiltInRegistries.BLOCK.getKey(expected.getBlock()).toString();
         String actualId = BuiltInRegistries.BLOCK.getKey(actual.getBlock()).toString();
-        if (!ContextualBlockStateEquivalence.matches(
+        var blueprint = handler.getBluePrint();
+        boolean exteriorAir = "minecraft:air".equals(expectedId)
+            && "minecraft:water".equals(actualId)
+            && BlueprintAirConnectivity.isExterior(
+                localPosition,
+                new BlockPos(
+                    blueprint.getSizeX(),
+                    blueprint.getSizeY(),
+                    blueprint.getSizeZ()
+                ),
+                position -> blueprint.getBlockState(position).isAir()
+            );
+        if (ContextualBlockStateEquivalence.matchesExteriorWater(
+            expectedId,
+            actualId,
+            exteriorAir
+        )) {
+            return true;
+        }
+        if (expected.equals(actual)
+            && matchesContextualBlockEntity(level.getBlockEntity(worldPosition), block)) {
+            return true;
+        }
+        String contextualProperty;
+        if (ContextualBlockStateEquivalence.matches(
             expectedId,
             properties(expected),
             actualId,
             properties(actual)
         )) {
+            contextualProperty = "column";
+        } else if (expected.getBlock() instanceof LeavesBlock
+            && ContextualBlockStateEquivalence.matchesLeaves(
+                expectedId,
+                properties(expected),
+                actualId,
+                properties(actual)
+            )) {
+            contextualProperty = LeavesBlock.DISTANCE.getName();
+        } else {
             return false;
         }
 
-        BlockState normalized = copyProperty(actual, expected, "column");
+        BlockState normalized = copyProperty(
+            actual,
+            expected,
+            contextualProperty
+        );
         IPlacementHandler placementHandler = PlacementHandlers.getHandler(
             level,
             worldPosition,
@@ -218,6 +289,51 @@ final class BlueprintSemanticVerifier {
             tileData,
             handler
         );
+    }
+
+    private static boolean matchesContextualBlockEntity(
+        BlockEntity worldBlockEntity,
+        BlockInfo blueprintBlock
+    ) {
+        if (worldBlockEntity == null || !blueprintBlock.hasTileEntityData()) {
+            return false;
+        }
+        CompoundTag blueprint = blueprintBlock.getTileEntityData();
+        CompoundTag world = worldBlockEntity.saveWithFullMetadata();
+        return ContextualBlockEntityEquivalence.matchesMaterialTextures(
+            blueprint.getString("id"),
+            stringValues(blueprint.getCompound("textureData")),
+            world.getString("id"),
+            stringValues(world.getCompound("textureData")),
+            materiallyTexturedComponents(blueprintBlock.getState().getBlock())
+        );
+    }
+
+    private static Set<String> materiallyTexturedComponents(Block block) {
+        try {
+            Object value = block.getClass().getMethod("getComponents").invoke(block);
+            if (!(value instanceof Collection<?> components)) {
+                return Set.of();
+            }
+            Set<String> result = new HashSet<>();
+            for (Object component : components) {
+                Object id = component.getClass().getMethod("getId").invoke(component);
+                result.add(id.toString());
+            }
+            return result;
+        } catch (NoSuchMethodException
+                 | IllegalAccessException
+                 | InvocationTargetException exception) {
+            return Set.of();
+        }
+    }
+
+    private static Map<String, String> stringValues(CompoundTag tag) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String key : tag.getAllKeys()) {
+            result.put(key, tag.getString(key));
+        }
+        return result;
     }
 
     private static Map<String, String> properties(BlockState state) {
