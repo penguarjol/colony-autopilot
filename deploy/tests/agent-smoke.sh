@@ -242,6 +242,24 @@ if [[ "$agent_context" != "$ollama_context" ]]; then
   exit 1
 fi
 
+# Every registered model is selectable in the agent UI, so each one must fit the
+# standing MemoryMax with fp16 KV. Ollama only applies a quantized KV cache when
+# OLLAMA_KV_CACHE_TYPE is set, this deployment does not set it, and a measured
+# load confirms K and V are both f16. A dense 8B therefore needs ~4.94 GiB of
+# weights plus 2.5 GiB of KV at 16K and is cgroup-killed under the 6 GiB cap;
+# it is a burst-only model requiring a deliberately raised cap, not a menu
+# option. Adding an entry here means confirming that arithmetic first.
+registered_models="$(
+  python3 -c 'import json, sys; print(" ".join(sorted(
+    json.load(open(sys.argv[1]))["provider"]["ollama"]["models"])))' \
+    "$repo_root/deploy/config/opencode.json"
+)"
+if [[ "$registered_models" != "qwen3.5:4b" ]]; then
+  printf 'registered models %s exceed what MemoryMax=6G can load\n' \
+    "$registered_models" >&2
+  exit 1
+fi
+
 mode="$repo_root/deploy/scripts/colony-agent-mode"
 bash "$mode" --help | grep -Fq 'background'
 bash "$mode" --help | grep -Fq 'burst'

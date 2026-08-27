@@ -45,17 +45,6 @@
             "context": 16384,
             "output": 2048
           }
-        },
-        "granite4.2:8b-16k": {
-          "name": "Granite 4.2 8B (16K pinned)",
-          "tools": true,
-          "options": {
-            "reasoningEffort": "none"
-          },
-          "limit": {
-            "context": 16384,
-            "output": 2048
-          }
         }
       }
     }

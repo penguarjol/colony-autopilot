@@ -120,11 +120,40 @@ Design constraint worth preserving: triggers capture evidence and never act.
 Waking the 8B automatically on a host that cannot run it alongside the game
 server would convert a logged error into a memory-pressure incident.
 
+## Measured KV footprint, and why the 8B is not a menu option
+
+This deployment does not set `OLLAMA_KV_CACHE_TYPE`, so the KV cache is fp16. A
+measured load confirms it: `K (f16) / V (f16)`, and the `llama-server` command
+line carries no `--cache-type-k`. The `q8_0` used during the 8B trial was an
+ad-hoc probe setting that was never persisted, so any fit arithmetic assuming a
+quantized cache does not hold here.
+
+Two measured points, both matching `layers × kv_heads × head_dim × 4` exactly:
+
+| Model | Attn layers | KV @16K | Per token |
+|---|---|---|---|
+| `qwen3.5:4b` | 8 | 512 MiB | 32 KiB |
+| `granite4:tiny-h` | 4 | 128 MiB | 8 KiB |
+
+By the same formula a dense `granite4.2:8b` (40 layers, 8 KV heads, head dim
+128) needs 2.5 GiB of KV at 16K on top of ~4.94 GiB of weights, which the 6 GiB
+cap cannot hold. It was trialed with the cap raised *for the test only*, so it
+has been removed from `opencode.json` and a test now pins the registered model
+set: adding an entry forces the memory arithmetic to be answered first.
+
+Raising `qwen3.5:4b` to 32K is memory-feasible (1.0 GiB KV, ~4.4 GiB total) but
+is not a free win. OpenCode packs prompts up to `limit.context`, and prefill
+measures ~71 tok/s, so a filled 32K prompt costs ~460 s before the first token.
+It is a latency trade, and it would not address the reasoning failures that are
+the actual blocker.
+
 ## Remaining work
 
 1. Make the canary memory gate profile-aware so a raised cap does not read as a
    model failure.
-2. Add a smoke check that the *effective* `n_ctx` matches the configured
-   ceiling, so a baked `num_ctx` cannot silently override it again.
+2. Add a runtime check that the *effective* `n_ctx` and KV cache type match
+   intent. The registered-model test closes the offline half of this; a baked
+   `num_ctx` or a silently ignored `OLLAMA_KV_CACHE_TYPE` is still only visible
+   in the server log.
 3. Open question: local autonomous triage on this host is bounded by memory
    bandwidth, not configuration. If it matters, that is a GPU conversation.
