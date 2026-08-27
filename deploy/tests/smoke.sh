@@ -17,6 +17,7 @@ required_files=(
   deploy/scripts/colony-autopilot
   deploy/scripts/install-bridge.sh
   deploy/scripts/install-agent.sh
+  deploy/scripts/install-triage.sh
   deploy/scripts/install.sh
   deploy/scripts/run-autopilot
   deploy/scripts/run-colony-agent
@@ -49,6 +50,7 @@ shell_scripts=(
   deploy/scripts/colony-autopilot
   deploy/scripts/install-bridge.sh
   deploy/scripts/install-agent.sh
+  deploy/scripts/install-triage.sh
   deploy/scripts/install.sh
   deploy/scripts/run-autopilot
   deploy/scripts/run-colony-agent
@@ -61,8 +63,8 @@ for script in "${shell_scripts[@]}"; do
   bash -n "$repo_root/$script"
 done
 
-for script in install.sh install-bridge.sh install-agent.sh uninstall.sh \
-  uninstall-agent.sh backup.sh clone-world.sh benchmark.sh; do
+for script in install.sh install-bridge.sh install-agent.sh install-triage.sh \
+  uninstall.sh uninstall-agent.sh backup.sh clone-world.sh benchmark.sh; do
   output="$(bash "$repo_root/deploy/scripts/$script" --help)"
   [[ "$output" == *"--apply"* ]] || {
     printf '%s does not document --apply\n' "$script" >&2
@@ -213,6 +215,7 @@ PATH="$idle_test_root:$PATH" TEST_DOCKER_MOUNT="$idle_test_root/other" \
   _ "$repo_root/deploy/lib/common.sh" "$idle_test_root/volume"
 
 bash "$repo_root/deploy/tests/agent-smoke.sh"
+bash "$repo_root/deploy/tests/triage-smoke.sh"
 bash "$repo_root/deploy/tests/agent-security.sh"
 
 printf 'deployment artifact smoke tests passed\n'

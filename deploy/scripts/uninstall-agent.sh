@@ -79,16 +79,30 @@ managed_paths=(
   /usr/local/sbin/colony-agent-restart
   /usr/local/sbin/colony-agent-rollback
   /usr/local/sbin/colony-agent-status
+  /usr/local/sbin/colony-triage
+  /etc/systemd/system/colony-triage-capture@.service
+  /etc/systemd/system/colony-triage-scan.service
+  /etc/systemd/system/colony-triage-scan.timer
   /opt/colony-agent/bin/opencode
 )
+
+triage_dropins() {
+  find /etc/systemd/system -mindepth 2 -maxdepth 2 \
+    -name zz-colony-triage.conf 2>/dev/null || true
+}
 
 if [[ "$APPLY" != true ]]; then
   quote_command systemctl disable --now colony-agent-proxy.socket
   quote_command systemctl disable --now colony-agent.service
   quote_command systemctl disable --now colony-agent-operation.socket
+  quote_command systemctl disable --now colony-triage-scan.timer
   for path in "${managed_paths[@]}"; do
     quote_command rm -f -- "$path"
   done
+  while IFS= read -r dropin; do
+    [[ -n "$dropin" ]] || continue
+    quote_command rm -f -- "$dropin"
+  done < <(triage_dropins)
   quote_command rm -rf -- /opt/colony-agent/gradle
   quote_command rm -rf -- /opt/colony-agent/java
   quote_command ufw delete allow from 192.168.1.0/24 \
@@ -99,7 +113,8 @@ if [[ "$APPLY" != true ]]; then
       "$DEFAULT_BACKUP_ROOT/colony-agent-purge-$(timestamp_utc).tar.gz" \
       /etc/colony-agent /var/lib/colony-agent /srv/colony-agent
     quote_command rm -rf -- /etc/colony-agent /var/lib/colony-agent \
-      /var/lib/colony-agent-ops /var/log/colony-agent /srv/colony-agent
+      /var/lib/colony-agent-ops /var/log/colony-agent /srv/colony-agent \
+      /etc/colony-triage /var/lib/colony-triage
     quote_command userdel colony-agent
   fi
   exit 0
@@ -109,7 +124,12 @@ systemctl disable --now colony-agent-proxy.socket 2>/dev/null || true
 systemctl stop colony-agent-proxy.service 2>/dev/null || true
 systemctl disable --now colony-agent.service 2>/dev/null || true
 systemctl disable --now colony-agent-operation.socket 2>/dev/null || true
+systemctl disable --now colony-triage-scan.timer 2>/dev/null || true
 rm -f -- "${managed_paths[@]}"
+while IFS= read -r dropin; do
+  [[ -n "$dropin" ]] || continue
+  rm -f -- "$dropin"
+done < <(triage_dropins)
 rm -rf -- /opt/colony-agent/gradle
 rm -rf -- /opt/colony-agent/java
 if command -v ufw >/dev/null 2>&1; then
@@ -123,7 +143,8 @@ if [[ "$purge" == true ]]; then
   tar -czf "$archive" --ignore-failed-read \
     /etc/colony-agent /var/lib/colony-agent /srv/colony-agent
   rm -rf -- /etc/colony-agent /var/lib/colony-agent \
-    /var/lib/colony-agent-ops /var/log/colony-agent /srv/colony-agent
+    /var/lib/colony-agent-ops /var/log/colony-agent /srv/colony-agent \
+    /etc/colony-triage /var/lib/colony-triage
   id colony-agent >/dev/null 2>&1 && userdel colony-agent
 fi
 

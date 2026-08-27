@@ -1,0 +1,14 @@
+[Unit]
+Description=Periodic hard-error scan for homeserver services
+
+[Timer]
+# The scan window is 15min against a 10min period, so a burst that straddles a
+# boundary is still seen. Deduplication keeps the overlap from double-queueing.
+Unit=colony-triage-scan.service
+OnBootSec=5min
+OnUnitActiveSec=10min
+AccuracySec=1min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

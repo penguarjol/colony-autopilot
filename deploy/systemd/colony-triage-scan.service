@@ -1,0 +1,24 @@
+[Unit]
+Description=Scan homeserver service logs for hard errors
+Documentation=man:colony-triage(8)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/colony-triage scan --since 15min
+User=root
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=300
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/colony-triage
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native

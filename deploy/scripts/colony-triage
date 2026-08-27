@@ -1,0 +1,431 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Captures evidence about a failing homeserver service into a deduplicated
+# queue for a later burst-mode agent session. This script never starts, stops
+# or reconfigures anything, and never invokes a model: an 8B model cannot run
+# alongside the game server on this host, so acting on an incident is a
+# deliberate operator step, not an automatic consequence of detecting one.
+
+readonly default_queue_dir="/var/lib/colony-triage/queue"
+readonly default_scan_window="10min"
+readonly evidence_line_limit=40
+# Read a wider window than is stored, so collapsing repeated noise still leaves
+# room for the distinct faults underneath it.
+readonly evidence_scan_limit=400
+
+# Lines that mean a service is broken rather than merely noisy. Kept narrow on
+# purpose: a pattern that matches warnings turns the queue into a firehose.
+readonly hard_error_pattern='(^|[^A-Za-z])(ERROR|FATAL|SEVERE|CRITICAL)([^A-Za-z]|$)|Traceback \(most recent call last\)|Exception in thread|Segmentation fault'
+
+usage() {
+  cat <<'EOF'
+Usage:
+  colony-triage capture --unit NAME [--evidence FILE] [--queue-dir DIR]
+  colony-triage scan [--unit NAME] [--from-file FILE] [--since WINDOW]
+                     [--queue-dir DIR]
+  colony-triage list [--queue-dir DIR]
+  colony-triage show ID [--queue-dir DIR]
+  colony-triage clear (ID | --all) [--queue-dir DIR]
+
+Queues evidence about failing services for a later agent session. Identical
+failures collapse into a single incident with an occurrence count.
+
+Options:
+  --unit NAME      Service the evidence belongs to
+  --evidence FILE  Use this file as evidence instead of querying the journal
+  --from-file FILE Scan this file instead of live service logs
+  --since WINDOW   Log window to scan (default 10min)
+  --queue-dir DIR  Queue location (default /var/lib/colony-triage/queue)
+  --all            With clear, remove every queued incident
+  --help           Show this help
+EOF
+}
+
+die() {
+  printf 'colony-triage: %s\n' "$1" >&2
+  exit 1
+}
+
+# Strips timestamps, PIDs, coordinates and ANSI escapes so that the same
+# failure recurring at a different time or position collapses to one incident.
+sha256_stream() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum
+  else
+    shasum -a 256
+  fi
+}
+
+strip_escapes() {
+  sed -E $'s/\033\\[[0-9;?]*[a-zA-Z]//g; s/\033\\][^\a]*\a//g; s/[\r\a]//g'
+}
+
+# Collapses a log line to a form that ignores when and where it happened, so
+# the same fault recurring at a different tick or block position is recognised
+# as one incident. Preserves line count for pairing with the original text.
+normalize_keys() {
+  strip_escapes \
+    | sed -E \
+      -e 's/[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.]+Z?//g' \
+      -e 's/\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]//g' \
+      -e 's/\[[0-9]+\]//g' \
+      -e 's/-?[0-9]+/N/g' \
+    | tr -s ' ' \
+    | sed -E 's/^ +| +$//g'
+}
+
+normalize_lines() {
+  normalize_keys | grep -av '^$' || true
+}
+
+# Keeps one copy of each distinct fault. A modpack repeats the same benign
+# startup error dozens of times per boot, which would otherwise push the fault
+# worth reading out of the evidence window.
+# The line cap is applied inside awk rather than by a trailing head. head closes
+# the pipe as soon as it has enough, which kills paste with SIGPIPE, and under
+# pipefail that aborts the caller: a log with more faults than the cap would
+# queue nothing at all.
+collapse_evidence() {
+  local raw="$1" limit="$2"
+  paste -d'\t' <(normalize_keys <"$raw") <(strip_escapes <"$raw") \
+    | awk -F'\t' -v limit="$limit" '
+        $1 != "" && !seen[$1]++ && ++kept <= limit { print $2 }'
+}
+
+# Signatures come from the error lines when the evidence has any, and from the
+# whole evidence otherwise. A unit systemd marked failed is an incident whether
+# or not its logs happen to contain the word ERROR: the proxy socket failure
+# reads "Cannot assign requested address" and matches no severity token.
+signature_of() {
+  local evidence_file="$1"
+  local candidates
+  candidates="$(
+    grep -aE "$hard_error_pattern" "$evidence_file" | awk 'NR <= 5'
+  )" || true
+  if [[ -z "$candidates" ]]; then
+    candidates="$(tail -n 10 -- "$evidence_file")"
+  fi
+  local normalized
+  normalized="$(printf '%s\n' "$candidates" | normalize_lines)"
+  [[ -n "$normalized" ]] || return 0
+  printf '%s\n' "$normalized" | sha256_stream | cut -d' ' -f1
+}
+
+fingerprint() {
+  local unit="$1" signature="$2"
+  printf '%s\n%s\n' "$unit" "$signature" | sha256_stream | cut -c1-16
+}
+
+now_utc() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+gather_unit_evidence() {
+  local unit="$1"
+  command -v journalctl >/dev/null 2>&1 \
+    || die "journalctl unavailable; pass --evidence for offline capture"
+  {
+    systemctl status --no-pager --lines=0 -- "$unit" 2>&1 | awk 'NR <= 8' || true
+    printf -- '---\n'
+    journalctl --no-pager --lines="$evidence_line_limit" --unit "$unit" 2>&1 || true
+  }
+}
+
+queue_incident() {
+  local queue_dir="$1" unit="$2" source="$3" evidence_file="$4"
+  local signature
+  signature="$(signature_of "$evidence_file")"
+  if [[ -z "$signature" ]]; then
+    return 1
+  fi
+  local id
+  id="$(fingerprint "$unit" "$signature")"
+  mkdir -p -- "$queue_dir"
+  ID="$id" UNIT="$unit" SOURCE="$source" SIGNATURE="$signature" \
+    SEEN="$(now_utc)" EVIDENCE_FILE="$evidence_file" \
+    QUEUE_PATH="$queue_dir/$id.json" \
+    python3 - <<'PY'
+import json
+import os
+import pathlib
+
+path = pathlib.Path(os.environ["QUEUE_PATH"])
+evidence = pathlib.Path(os.environ["EVIDENCE_FILE"]).read_text(
+    encoding="utf-8", errors="replace"
+)
+seen = os.environ["SEEN"]
+
+if path.exists():
+    incident = json.loads(path.read_text())
+    incident["occurrences"] += 1
+    incident["last_seen"] = seen
+    incident["evidence"] = evidence
+else:
+    incident = {
+        "id": os.environ["ID"],
+        "unit": os.environ["UNIT"],
+        "source": os.environ["SOURCE"],
+        "signature": os.environ["SIGNATURE"],
+        "first_seen": seen,
+        "last_seen": seen,
+        "occurrences": 1,
+        "evidence": evidence,
+    }
+
+path.write_text(json.dumps(incident, indent=2, sort_keys=True) + "\n")
+PY
+  printf '%s\n' "$id"
+}
+
+cmd_capture() {
+  local unit="" evidence="" queue_dir="$default_queue_dir"
+  while (($#)); do
+    case "$1" in
+      --unit) (($# >= 2)) || die "--unit requires a name"; unit="$2"; shift 2 ;;
+      --evidence)
+        (($# >= 2)) || die "--evidence requires a path"
+        evidence="$2"; shift 2 ;;
+      --queue-dir)
+        (($# >= 2)) || die "--queue-dir requires a path"
+        queue_dir="$2"; shift 2 ;;
+      --help) usage; return 0 ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  [[ -n "$unit" ]] || die "capture requires --unit"
+
+  local workdir
+  workdir="$(mktemp -d)"
+  trap 'rm -rf -- "$workdir"' RETURN
+  local raw="$workdir/raw"
+  local evidence_file="$workdir/evidence"
+  if [[ -n "$evidence" ]]; then
+    [[ -r "$evidence" ]] || die "cannot read evidence: $evidence"
+    cp -- "$evidence" "$raw"
+  else
+    gather_unit_evidence "$unit" >"$raw"
+  fi
+  collapse_evidence "$raw" "$evidence_line_limit" >"$evidence_file"
+
+  local id
+  if id="$(queue_incident "$queue_dir" "$unit" "unit-failure" "$evidence_file")"; then
+    printf 'queued incident %s for %s\n' "$id" "$unit"
+  else
+    printf 'no evidence available for %s\n' "$unit"
+  fi
+}
+
+scan_source() {
+  local unit="$1" from_file="$2" since="$3"
+  if [[ -n "$from_file" ]]; then
+    cat -- "$from_file"
+    return
+  fi
+  if command -v docker >/dev/null 2>&1 \
+    && docker inspect "$unit" >/dev/null 2>&1; then
+    docker logs --since "$since" -- "$unit" 2>&1
+    return
+  fi
+  command -v journalctl >/dev/null 2>&1 \
+    || die "no log source for $unit; pass --from-file"
+  journalctl --no-pager --since "-$since" --unit "$unit" 2>&1
+}
+
+cmd_scan() {
+  local unit="" from_file="" since="$default_scan_window"
+  local queue_dir="$default_queue_dir"
+  while (($#)); do
+    case "$1" in
+      --unit) (($# >= 2)) || die "--unit requires a name"; unit="$2"; shift 2 ;;
+      --from-file)
+        (($# >= 2)) || die "--from-file requires a path"
+        from_file="$2"; shift 2 ;;
+      --since)
+        (($# >= 2)) || die "--since requires a window"; since="$2"; shift 2 ;;
+      --queue-dir)
+        (($# >= 2)) || die "--queue-dir requires a path"
+        queue_dir="$2"; shift 2 ;;
+      --help) usage; return 0 ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+
+  local units=()
+  if [[ -n "$unit" ]]; then
+    units=("$unit")
+  else
+    mapfile -t units < <(scan_targets)
+  fi
+
+  local workdir
+  workdir="$(mktemp -d)"
+  trap 'rm -rf -- "$workdir"' RETURN
+  local queued=0
+  for target in "${units[@]}"; do
+    [[ -n "$target" ]] || continue
+    local slug
+    slug="$(printf '%s' "$target" | tr -c 'A-Za-z0-9' '-')"
+    local matches="$workdir/$slug.matches"
+    local evidence_file="$workdir/$slug.evidence"
+    scan_source "$target" "$from_file" "$since" \
+      | grep -aE "$hard_error_pattern" \
+      | keep_included "$target" \
+      | drop_ignored "$target" \
+      | tail -n "$evidence_scan_limit" >"$matches" || true
+    [[ -s "$matches" ]] || continue
+    collapse_evidence "$matches" "$evidence_line_limit" >"$evidence_file"
+    [[ -s "$evidence_file" ]] || continue
+    if id="$(queue_incident "$queue_dir" "$target" "log-scan" "$evidence_file")"; then
+      printf 'queued incident %s for %s\n' "$id" "$target"
+      queued=$((queued + 1))
+    fi
+  done
+  printf 'scan queued %d incident(s)\n' "$queued"
+}
+
+watch_config() {
+  printf '%s' "${COLONY_TRIAGE_WATCH_CONF:-/etc/colony-triage/watch.conf}"
+}
+
+scan_targets() {
+  local config
+  config="$(watch_config)"
+  [[ -r "$config" ]] || return 0
+  sed -E 's/#.*//' "$config" \
+    | awk '/^[[:space:]]*scan[[:space:]]+/ { print $2 }'
+}
+
+# "ignore UNIT SUBSTRING" suppresses a permanently benign error for one unit,
+# or for every unit with *. Matching is fixed-string so a config entry cannot
+# inject a regex that silences more than intended. Scoping matters: the
+# Minecraft modpack logs class-loading errors on every boot that will never be
+# fixed, but the same text from another service would be news.
+rule_patterns() {
+  local directive="$1" unit="$2" config
+  config="$(watch_config)"
+  [[ -r "$config" ]] || return 0
+  sed -E 's/[[:space:]]+#.*//' "$config" \
+    | awk -v directive="$directive" -v unit="$unit" '
+        $1 == directive && (unit == $2 || $2 == "*") {
+          pattern = $0
+          sub(/^[[:space:]]*[a-z]+[[:space:]]+[^[:space:]]+[[:space:]]+/, "",
+              pattern)
+          if (pattern != "") {
+            print pattern
+          }
+        }'
+}
+
+# Restricts a noisy unit to the errors worth waking someone for. The Minecraft
+# container logs roughly 1,700 error lines a day from third-party mods, so an
+# ignore list there is unwinnable; include rules invert the default to
+# allowlisting for that unit only. Units without include rules are unaffected.
+keep_included() {
+  local unit="$1"
+  local patterns
+  patterns="$(rule_patterns include "$unit")"
+  if [[ -z "$patterns" ]]; then
+    cat
+    return
+  fi
+  grep -aF "$patterns" || true
+}
+
+drop_ignored() {
+  local unit="$1"
+  local patterns
+  patterns="$(rule_patterns ignore "$unit")"
+  if [[ -z "$patterns" ]]; then
+    cat
+    return
+  fi
+  grep -avF "$patterns" || true
+}
+
+cmd_list() {
+  local queue_dir="$default_queue_dir"
+  while (($#)); do
+    case "$1" in
+      --queue-dir)
+        (($# >= 2)) || die "--queue-dir requires a path"
+        queue_dir="$2"; shift 2 ;;
+      --help) usage; return 0 ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  [[ -d "$queue_dir" ]] || { printf 'queue is empty\n'; return 0; }
+  QUEUE_DIR="$queue_dir" python3 - <<'PY'
+import glob
+import json
+import os
+
+paths = sorted(glob.glob(os.path.join(os.environ["QUEUE_DIR"], "*.json")))
+if not paths:
+    print("queue is empty")
+else:
+    print(f"{'ID':18s} {'OCCURS':>7s}  {'LAST SEEN':21s} UNIT")
+    for path in paths:
+        incident = json.load(open(path))
+        print(
+            f"{incident['id']:18s} {incident['occurrences']:7d}  "
+            f"{incident['last_seen']:21s} {incident['unit']}"
+        )
+PY
+}
+
+cmd_show() {
+  local id="" queue_dir="$default_queue_dir"
+  while (($#)); do
+    case "$1" in
+      --queue-dir)
+        (($# >= 2)) || die "--queue-dir requires a path"
+        queue_dir="$2"; shift 2 ;;
+      --help) usage; return 0 ;;
+      -*) die "unexpected argument: $1" ;;
+      *) id="$1"; shift ;;
+    esac
+  done
+  [[ -n "$id" ]] || die "show requires an incident id"
+  local path="$queue_dir/$id.json"
+  [[ -r "$path" ]] || die "no such incident: $id"
+  cat -- "$path"
+}
+
+cmd_clear() {
+  local id="" all=0 queue_dir="$default_queue_dir"
+  while (($#)); do
+    case "$1" in
+      --all) all=1; shift ;;
+      --queue-dir)
+        (($# >= 2)) || die "--queue-dir requires a path"
+        queue_dir="$2"; shift 2 ;;
+      --help) usage; return 0 ;;
+      -*) die "unexpected argument: $1" ;;
+      *) id="$1"; shift ;;
+    esac
+  done
+  if ((all)); then
+    rm -f -- "$queue_dir"/*.json 2>/dev/null || true
+    printf 'queue cleared\n'
+    return 0
+  fi
+  [[ -n "$id" ]] || die "clear requires an incident id or --all"
+  local path="$queue_dir/$id.json"
+  [[ -e "$path" ]] || die "no such incident: $id"
+  rm -f -- "$path"
+  printf 'cleared incident %s\n' "$id"
+}
+
+(($#)) || { usage; exit 1; }
+verb="$1"
+shift
+case "$verb" in
+  capture) cmd_capture "$@" ;;
+  scan) cmd_scan "$@" ;;
+  list) cmd_list "$@" ;;
+  show) cmd_show "$@" ;;
+  clear) cmd_clear "$@" ;;
+  --help | -h | help) usage ;;
+  *) die "unknown verb: $verb" ;;
+esac

@@ -224,6 +224,45 @@ equivalent to a senior cloud coding agent. If the capability or resource
 canary fails, keep deployment authority revoked and use chat, read, edit, and
 test functions only.
 
+## Hard-error triggers
+
+Two detection paths queue evidence when a homeserver service breaks, because
+neither one alone sees every failure. `OnFailure=` drop-ins fire when systemd
+marks a unit failed, which covers a crash or a socket that cannot bind. A
+timer-driven log scan covers the opposite case: `colony-agent-proxy.socket` sat
+inactive for eleven days and the Minecraft bridge logged 1,202 errors in ten
+minutes while its container stayed healthy and `colony-autopilot.service`
+stayed active, so nothing was ever marked failed.
+
+```bash
+sudo deploy/scripts/install-triage.sh --apply
+colony-triage list
+colony-triage show <id>
+colony-triage clear <id>
+```
+
+Watched units, scan targets, and per-unit filters live in
+`/etc/colony-triage/watch.conf`. The installed file is authoritative;
+`--replace-config` is required to overwrite it, so a unit added on the host
+survives a reinstall.
+
+A queue only helps if what lands in it is worth reading. `ignore <unit> <text>`
+drops a permanently benign error; `include <unit> <text>` inverts the default
+to an allowlist for that unit alone. Minecraft needs the allowlist: a 24-hour
+survey found roughly 1,700 error lines, 618 from a library probing Forge jars
+for a `fabric.mod.json` and 526 from Forge refusing client-only classes on a
+dedicated server, none of it fixable here and all of it recurring every boot.
+Scoped to `ColonyAutopilot` plus crash-class markers, the same window yields
+one incident with three distinct lines.
+
+Triggers capture evidence and nothing else. They do not restart services and
+do not invoke the model, because an 8B model cannot run concurrently with the
+game server on this host: waking it automatically would turn a logged error
+into a memory-pressure incident. Incidents are deduplicated by unit plus a
+timestamp- and coordinate-normalized error signature, tracking occurrence
+counts rather than queueing one entry per line, so a hot loop produces one
+incident to review in the next burst session.
+
 ## Existing server integration
 
 `/usr/local/bin/server` is the host service manager, not the Minecraft process.
