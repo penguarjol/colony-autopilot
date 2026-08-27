@@ -152,12 +152,35 @@ for required_discipline in \
   }
 done
 
+# Read-only discovery tools are strictly weaker than bash, which can already run
+# find, grep and ls. Denying them while bash is allowed is not a boundary, it
+# just costs one inference round-trip per directory level.
+python3 - "$repo_root/deploy/config/opencode.json" <<'PY' || exit 1
+import json
+import sys
+
+permission = json.load(open(sys.argv[1]))["agent"]["maintenance"]["permission"]
+if permission.get("bash") != "allow":
+    sys.exit(0)
+superseded = [
+    tool
+    for tool in ("glob", "grep", "list")
+    if permission.get(tool) == "deny"
+]
+if superseded:
+    sys.exit(
+        "bash is allowed, so denying "
+        + ", ".join(superseded)
+        + " removes capability without adding a boundary"
+    )
+PY
+
 agent_steps="$(
   python3 -c 'import json, sys; print(
     json.load(open(sys.argv[1]))["agent"]["maintenance"]["steps"])' \
     "$repo_root/deploy/config/opencode.json"
 )"
-if ((agent_steps < 12)); then
+if ((agent_steps < 24)); then
   printf 'maintenance agent needs headroom for the full TDD loop (steps=%s)\n' \
     "$agent_steps" >&2
   exit 1

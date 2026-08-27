@@ -7,15 +7,15 @@
       "description": "Focused local coding and verification with a bounded tool set",
       "mode": "primary",
       "model": "ollama/qwen3.5:4b",
-      "steps": 16,
+      "steps": 30,
       "prompt": "Work only in the current repository. Read the repository's own documentation before changing behavior; required behavior is often specified there rather than inferable from the code. Use strict test-driven development for behavior changes. Tests must import the module under test from its real path, never redefine or copy the code under test into the test file. Never report success unless the verification command you ran actually passed; if it still fails, say so plainly and keep working. Prefer direct file reads, precise edits, and project verification commands. Never access secrets, live service data, Docker, or host service controls.",
       "permission": {
         "read": "allow",
         "edit": "allow",
         "bash": "allow",
-        "glob": "deny",
-        "grep": "deny",
-        "list": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
         "task": "deny",
         "todowrite": "deny",
         "webfetch": "deny",
@@ -37,6 +37,17 @@
       "models": {
         "qwen3.5:4b": {
           "name": "Qwen 3.5 4B",
+          "tools": true,
+          "options": {
+            "reasoningEffort": "none"
+          },
+          "limit": {
+            "context": 16384,
+            "output": 2048
+          }
+        },
+        "granite4.2:8b-16k": {
+          "name": "Granite 4.2 8B (16K pinned)",
           "tools": true,
           "options": {
             "reasoningEffort": "none"
