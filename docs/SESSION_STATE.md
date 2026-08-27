@@ -3,13 +3,17 @@
 **Objective:** Make the local coding agent usable on the homeserver, and give it
 static triggers that wake it on hard service errors so it can triage.
 
-**Status:** PARTIALLY COMPLETE — governor and harness work landed and verified.
-Trigger subsystem not built. Three live failures still unfixed.
+**Status:** COMPLETE — governor and harness work, all three live failures, and
+the trigger subsystem landed and verified against the live server.
 
 ## Landed and verified
 
 - `7325604` — Ollama resource governors and the canary harness that measured them.
 - `be0a8e8` — read-only discovery tools allowed; 8B candidate registered.
+- `0e6acd9` — LAN socket proxy adopted; `FreeBind=true` fixes the boot-time bind.
+- `13fc6dc` — bridge stops looping on unsatisfiable block states.
+- `15862b5` — agent starts with `opencode serve`, ending the `xdg-open` noise.
+- `c0b02dd` — hard-error trigger subsystem.
 
 Per-step agent latency went from ~350s to ~7s. The canary went from timing out
 at 900s having completed two tool calls, to completing the full task in 129s.
@@ -18,15 +22,18 @@ Server matches the committed config: `OLLAMA_CONTEXT_LENGTH=16384`,
 `OLLAMA_KEEP_ALIVE=5m`, `MemoryMax=6G`, background profile `CPUQuota=400%`,
 default model `ollama/qwen3.5:4b`, deploy authority gate empty (revoked).
 
-## Live failures, still unfixed
+## Live failures, now fixed
 
-1. **`colony-agent-proxy.socket` down since 2026-08-26 08:14 UTC.** Binds
+1. **`colony-agent-proxy.socket` was down since 2026-08-26 08:14 UTC.** Binds
    `192.168.1.171:4096` before DHCP finalizes the address at boot:
    `Cannot assign requested address`, then never retries. LAN access on 4096 is
    dead. Fix is `FreeBind=true` in `[Socket]`. The unit file is untracked in git
    (`deploy/systemd/colony-agent-proxy.socket`) along with its service and the
    related `run-colony-agent` / `colony-agent.service` edits — that work belongs
-   to another session and was deliberately left uncommitted.
+   to another session and was deliberately left uncommitted. Resolved in
+   `0e6acd9`: the whole proxy feature was adopted with `FreeBind=true` and
+   assertions that the listener stays on a specific address rather than a
+   wildcard.
 
 2. **Bridge verification hot loop**, ~2 errors/second, work orders 13 and 16
    never complete. Two defects:
@@ -38,7 +45,14 @@ default model `ollama/qwen3.5:4b`, deploy authority gate empty (revoked).
      `sessions.remove(order)` or marking the order terminally failed, so the next
      tick re-enters VERIFYING forever. No retry budget, backoff, or dead-letter.
 
+   Resolved in `13fc6dc` via `VerifiableBlockState` and
+   `VerificationRetryBudget`, with an `ABANDONED` terminal status. Verified on
+   the live server: zero bridge errors since the restart, against ~486 in the
+   preceding 24 hours.
+
 3. **`xdg-open` not found** — error-level noise on every agent start. Cosmetic.
+   Resolved in `15862b5`: `opencode serve` exposes the same HTTP endpoint
+   without trying to open a browser on a headless host.
 
 ## Model findings
 
@@ -86,16 +100,31 @@ tradeoff. `FreeBind` appears zero times in its transcript.
   approved. That gate is currently closed because no available model passes the
   canary except `granite4.2:8b`, which is too slow to be practical.
 
-## To resume
+## Trigger subsystem as built
 
-1. Fix the three live failures with tests. The proxy socket is the urgent one.
-2. Build the trigger subsystem: `OnFailure=colony-agent-triage@%n.service`
-   drop-ins, plus a log watcher with deduplication (the bridge incident alone
-   would have fired 1,202 times in ten minutes). Both paths queue evidence
-   rather than acting.
-3. Make the canary memory gate profile-aware so a raised cap does not read as a
+`colony-triage` with `capture`, `scan`, `list`, `show`, `clear`. `OnFailure=`
+drop-ins are generated from `/etc/colony-triage/watch.conf` for five units;
+`colony-triage-scan.timer` polls scan targets every ten minutes over a
+fifteen-minute window, so a burst straddling a boundary is still seen and
+deduplication absorbs the overlap.
+
+Two filters keep the queue readable. Incidents deduplicate on a timestamp- and
+coordinate-normalized signature, tracking occurrence counts. Per-unit `include`
+rules invert detection to an allowlist for noisy units.
+
+Validated against the live 24-hour window: it caught the pre-fix bridge errors
+as one incident with three distinct lines, and rejected ~1,700 lines of
+third-party mod noise. Live queue empty, timer active, last scan successful.
+
+Design constraint worth preserving: triggers capture evidence and never act.
+Waking the 8B automatically on a host that cannot run it alongside the game
+server would convert a logged error into a memory-pressure incident.
+
+## Remaining work
+
+1. Make the canary memory gate profile-aware so a raised cap does not read as a
    model failure.
-4. Add a smoke check that the *effective* `n_ctx` matches the configured
+2. Add a smoke check that the *effective* `n_ctx` matches the configured
    ceiling, so a baked `num_ctx` cannot silently override it again.
-5. Open question: local autonomous triage on this host is bounded by memory
+3. Open question: local autonomous triage on this host is bounded by memory
    bandwidth, not configuration. If it matters, that is a GPU conversation.
