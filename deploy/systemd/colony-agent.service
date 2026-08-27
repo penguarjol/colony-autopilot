@@ -41,7 +41,6 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 IPAddressDeny=any
 IPAddressAllow=localhost
-IPAddressAllow=192.168.1.0/24
 ReadWritePaths=/srv/colony-agent/workspaces /var/lib/colony-agent /var/log/colony-agent
 
 [Install]

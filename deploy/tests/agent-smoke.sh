@@ -59,6 +59,21 @@ if grep -Fq 'IPAddressAllow=192.168.1.0/24' \
 fi
 grep -Fq 'ListenStream=192.168.1.171:4096' \
   "$repo_root/deploy/systemd/colony-agent-proxy.socket"
+# Binding a specific address races DHCP at boot: systemd reaches the socket
+# unit before the interface owns the address and fails with "Cannot assign
+# requested address" without retrying. FreeBind lets the bind succeed early.
+# Widening ListenStream to a wildcard would also "fix" the race, at the cost of
+# exposing the agent on every interface, so assert the address stays specific.
+grep -Fq 'FreeBind=true' \
+  "$repo_root/deploy/systemd/colony-agent-proxy.socket" || {
+  printf 'proxy socket binds a specific address and needs FreeBind=true\n' >&2
+  exit 1
+}
+if grep -Eq '^ListenStream=(0\.0\.0\.0|\[?::\]?|):' \
+  "$repo_root/deploy/systemd/colony-agent-proxy.socket"; then
+  printf 'proxy socket must not listen on a wildcard address\n' >&2
+  exit 1
+fi
 grep -Fq 'systemd-socket-proxyd 127.0.0.1:4097' \
   "$repo_root/deploy/systemd/colony-agent-proxy.service"
 grep -Fq 'COLONY_AGENT_BACKEND_HOST' \

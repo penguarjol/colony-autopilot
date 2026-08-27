@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${COLONY_AGENT_HOST:?COLONY_AGENT_HOST is required}"
-: "${COLONY_AGENT_PORT:?COLONY_AGENT_PORT is required}"
 : "${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is required}"
+COLONY_AGENT_BACKEND_HOST="${COLONY_AGENT_BACKEND_HOST:-127.0.0.1}"
+COLONY_AGENT_BACKEND_PORT="${COLONY_AGENT_BACKEND_PORT:-4097}"
 
 export HOME="/var/lib/colony-agent"
 export XDG_CACHE_HOME="$HOME/cache"
@@ -12,5 +12,5 @@ export XDG_DATA_HOME="$HOME/data"
 export OPENCODE_CONFIG="/etc/colony-agent/opencode.json"
 
 exec /opt/colony-agent/bin/opencode web \
-  --hostname "$COLONY_AGENT_HOST" \
-  --port "$COLONY_AGENT_PORT"
+  --hostname "$COLONY_AGENT_BACKEND_HOST" \
+  --port "$COLONY_AGENT_BACKEND_PORT"

@@ -153,6 +153,10 @@ The authenticated browser is available only on the LAN at:
 http://192.168.1.171:4096
 ```
 
+OpenCode itself listens on `127.0.0.1:4097`. A hardened systemd socket proxy
+publishes port 4096, so browser ingress does not grant the agent process
+outbound LAN access. Ollama remains reachable only through localhost.
+
 The generated username and password are stored in
 `/etc/colony-agent/agent.env`, readable by root and the service account. An
 administrator can attach the SSH TUI to the same backend and shared sessions:

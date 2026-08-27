@@ -1,0 +1,14 @@
+[Unit]
+Description=LAN socket for the local Colony coding agent
+
+[Socket]
+ListenStream=192.168.1.171:4096
+# The address belongs to a DHCP lease that is not always assigned by the time
+# sockets.target is reached; without FreeBind the unit fails at boot with
+# "Cannot assign requested address" and is never retried.
+FreeBind=true
+NoDelay=true
+Backlog=128
+
+[Install]
+WantedBy=sockets.target
