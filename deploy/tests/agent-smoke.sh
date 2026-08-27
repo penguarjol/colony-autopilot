@@ -69,7 +69,7 @@ grep -Fq 'FreeBind=true' \
   printf 'proxy socket binds a specific address and needs FreeBind=true\n' >&2
   exit 1
 }
-if grep -Eq '^ListenStream=(0\.0\.0\.0|\[?::\]?|):' \
+if grep -Eq '^ListenStream=(0\.0\.0\.0:|\[?::\]?:|[0-9]+$)' \
   "$repo_root/deploy/systemd/colony-agent-proxy.socket"; then
   printf 'proxy socket must not listen on a wildcard address\n' >&2
   exit 1
@@ -78,6 +78,13 @@ grep -Fq 'systemd-socket-proxyd 127.0.0.1:4097' \
   "$repo_root/deploy/systemd/colony-agent-proxy.service"
 grep -Fq 'COLONY_AGENT_BACKEND_HOST' \
   "$repo_root/deploy/scripts/run-colony-agent"
+# "opencode web" tries to launch a browser and logs an xdg-open failure on a
+# headless host. "opencode serve" is byte-identical on the HTTP endpoint.
+grep -Eq '^exec /opt/colony-agent/bin/opencode serve' \
+  "$repo_root/deploy/scripts/run-colony-agent" || {
+  printf 'agent must start the headless server, not the browser-opening one\n' >&2
+  exit 1
+}
 grep -Fq 'OPENCODE_SERVER_PASSWORD' \
   "$repo_root/deploy/scripts/install-agent.sh"
 grep -Fq '23eca6a892c6b53c0f9ba2333b6906bdc31902634631d54cf17500e7e8cbfa20' \

@@ -11,6 +11,6 @@ export XDG_CONFIG_HOME="$HOME/config"
 export XDG_DATA_HOME="$HOME/data"
 export OPENCODE_CONFIG="/etc/colony-agent/opencode.json"
 
-exec /opt/colony-agent/bin/opencode web \
+exec /opt/colony-agent/bin/opencode serve \
   --hostname "$COLONY_AGENT_BACKEND_HOST" \
   --port "$COLONY_AGENT_BACKEND_PORT"
