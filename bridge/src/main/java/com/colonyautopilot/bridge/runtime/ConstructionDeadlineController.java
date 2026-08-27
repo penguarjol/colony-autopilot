@@ -134,7 +134,9 @@ public final class ConstructionDeadlineController implements AutoCloseable {
                     checked = result.checked();
                     repaired = result.repaired();
                     if (result.status()
-                        == StructureDeadlineReconciler.Status.COMPLETED) {
+                        == StructureDeadlineReconciler.Status.COMPLETED
+                        || result.status()
+                        == StructureDeadlineReconciler.Status.ABANDONED) {
                         data.remove(key);
                     }
                 }

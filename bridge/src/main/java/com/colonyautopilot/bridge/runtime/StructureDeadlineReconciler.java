@@ -12,8 +12,15 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 
 final class StructureDeadlineReconciler {
+    // A verification that fails is retried on the next tick. Without a ceiling
+    // an unsatisfiable deadline logs at tick rate indefinitely and the order
+    // never leaves the reconciling set.
+    private static final int MAX_VERIFICATION_ATTEMPTS = 3;
+
     private final Map<IBuilderWorkOrder, Session> sessions =
         new IdentityHashMap<>();
+    private final VerificationRetryBudget<IBuilderWorkOrder> verificationBudget =
+        new VerificationRetryBudget<>(MAX_VERIFICATION_ATTEMPTS);
 
     Result tick(
         ServerLevel level,
@@ -53,7 +60,20 @@ final class StructureDeadlineReconciler {
                 );
             state.setPlacementProgress(verification.progress());
             if (verification.status() == BlueprintSemanticVerifier.Status.FAILED) {
-                ColonyAutopilotBridge.LOGGER.error(
+                if (verificationBudget.recordFailure(order)) {
+                    ColonyAutopilotBridge.LOGGER.error(
+                        "Abandoning deadline verification for colony {} work order {} "
+                            + "at {} after {} consecutive failures",
+                        order.getColony().getID(),
+                        order.getID(),
+                        verification.mismatchPosition(),
+                        MAX_VERIFICATION_ATTEMPTS
+                    );
+                    sessions.remove(order);
+                    verificationBudget.forget(order);
+                    return new Result(Status.ABANDONED, verification.checked(), 0);
+                }
+                ColonyAutopilotBridge.LOGGER.warn(
                     "Deadline verification failed for colony {} work order {} at {}",
                     order.getColony().getID(),
                     order.getID(),
@@ -70,6 +90,7 @@ final class StructureDeadlineReconciler {
             session.handler().onCompletion();
             ((StructureAiAccessor) structureAi).colonyAutoCompleteBuild();
             sessions.remove(order);
+            verificationBudget.recordSuccess(order);
             return new Result(Status.COMPLETED, verification.checked(), 0);
         }
 
@@ -102,14 +123,24 @@ final class StructureDeadlineReconciler {
     void retainOnly(Iterable<IBuilderWorkOrder> activeOrders) {
         Map<IBuilderWorkOrder, Boolean> active = new IdentityHashMap<>();
         activeOrders.forEach(order -> active.put(order, Boolean.TRUE));
-        sessions.keySet().removeIf(order -> !active.containsKey(order));
+        sessions.keySet().removeIf(order -> {
+            if (active.containsKey(order)) {
+                return false;
+            }
+            verificationBudget.forget(order);
+            return true;
+        });
     }
 
     void remove(int colonyId, int workOrderId) {
-        sessions.keySet().removeIf(order ->
-            order.getColony().getID() == colonyId
-                && order.getID() == workOrderId
-        );
+        sessions.keySet().removeIf(order -> {
+            if (order.getColony().getID() != colonyId
+                || order.getID() != workOrderId) {
+                return false;
+            }
+            verificationBudget.forget(order);
+            return true;
+        });
     }
 
     enum Status {
@@ -117,7 +148,8 @@ final class StructureDeadlineReconciler {
         RECONCILING,
         VERIFYING,
         COMPLETED,
-        FAILED
+        FAILED,
+        ABANDONED
     }
 
     record Result(Status status, int checked, int repaired) {

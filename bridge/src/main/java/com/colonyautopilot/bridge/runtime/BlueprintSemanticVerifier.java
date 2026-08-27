@@ -83,6 +83,13 @@ final class BlueprintSemanticVerifier {
                 }
                 return failed(progress, iterator, checked, worldPosition);
             }
+            BlockState expectedState = block.getState();
+            if (!VerifiableBlockState.isVerifiable(
+                BuiltInRegistries.BLOCK.getKey(expectedState.getBlock()).toString(),
+                properties(expectedState)
+            )) {
+                continue;
+            }
             boolean canonicalBlockMatch = IPlacementHandler
                 .doesWorldStateMatchBlueprintState(
                     block,
