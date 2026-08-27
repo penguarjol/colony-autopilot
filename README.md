@@ -26,10 +26,30 @@ log directory is reserved for benchmark reports and operator exports.
 
 Ollama remains a separate system service and listens only on
 `127.0.0.1:11434`. Its override permits one request and one loaded model at a
-time, unloads models after each request, and applies `CPUQuota=150%`,
-`MemoryMax=6G`, a 65,536-token context ceiling, `Nice=10`, and idle I/O
-scheduling. The coding agent uses `qwen3.5:4b`; `phi3:mini` remains available
-for the existing planner.
+time, and applies `MemoryMax=6G`, a 16,384-token context ceiling, a five-minute
+model residency, `Nice=10`, and idle I/O scheduling. The coding agent uses
+`qwen3.5:4b`; `phi3:mini` remains available for the existing planner.
+
+The context ceiling and model residency are both load-bearing. A 65,536-token
+context saturates `MemoryMax=6G` for a 4B model and forces the cgroup into
+continuous reclaim, and unloading between requests discards the prompt cache so
+every tool step re-evaluates the whole conversation prefix instead of the new
+tokens. The ceiling must also match `limit.context` in `opencode.json`: OpenCode
+packs prompts up to its own limit and Ollama silently truncates anything beyond
+`num_ctx`, so a mismatch corrupts tool loops mid-conversation.
+
+CPU allocation has two profiles, switched with `colony-agent-mode`:
+
+```text
+background  CPUQuota=400%   coexists with the Minecraft server, for triage
+burst       CPUQuota=800%   full inference speed, for dedicated agent work
+```
+
+Generation throughput saturates host memory bandwidth at 800%, so a higher
+quota is unusable: Ollama runs one thread per physical core and the extra quota
+goes unspent. Making a model generate faster than that requires touching fewer
+weight bytes per token, which means a smaller or mixture-of-experts model, not
+more CPU.
 
 ```text
 Minecraft container (/home/container)
@@ -151,6 +171,16 @@ sudo deploy/scripts/init-agent-workspace.sh \
   --branch session/local-agent-20260824 \
   --apply
 sudo systemctl enable --now colony-agent.service
+```
+
+Switch the CPU profile around dedicated agent sessions. The quota is applied
+with `systemctl set-property --runtime`, so a reboot always returns to the
+background profile and burst cannot be left applied by accident:
+
+```bash
+colony-agent-mode status
+sudo colony-agent-mode burst --apply
+sudo colony-agent-mode background --apply
 ```
 
 The agent can read, edit, test, branch, and commit inside its clone. Host
@@ -317,10 +347,17 @@ sudo deploy/scripts/benchmark.sh --apply \
   | tee "/var/log/colony-autopilot/benchmark-$(date -u +%Y%m%dT%H%M%SZ).log"
 ```
 
-Acceptance requires all checks to pass, `phi3:mini` to respond within 60
-seconds, and `qwen3.5:4b` within 90 seconds. Override the latency limits
-only when a measured hardware baseline has been reviewed. Run the benchmark
-with Autopilot stopped so its results are reproducible.
+Acceptance scores throughput against a 3,500-token prompt, not the latency of a
+trivial request. It requires at least 30 prompt-eval tokens per second and 3.5
+generated tokens per second, which are the floor for the background profile; the
+burst profile clears them by roughly a factor of two. Run the benchmark with
+Autopilot stopped so its results are reproducible.
+
+Scoring a trivial prompt measures model load time and nothing else. Agent tool
+loops spend their time evaluating a multi-thousand-token conversation prefix on
+every step, so a short-prompt latency check can pass while real steps take
+minutes. Override the rate floors only when a measured hardware baseline has
+been reviewed.
 
 ## End-to-end acceptance
 

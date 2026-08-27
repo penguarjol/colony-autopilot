@@ -133,10 +133,43 @@ grep -Fq 'OLLAMA_NUM_PARALLEL=1' \
   "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
 grep -Fq 'OLLAMA_MAX_LOADED_MODELS=1' \
   "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
-grep -Fq 'OLLAMA_CONTEXT_LENGTH=65536' \
+grep -Fq 'OLLAMA_CONTEXT_LENGTH=16384' \
   "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
-grep -Fq 'CPUQuota=150%' "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
+grep -Fq 'OLLAMA_KEEP_ALIVE=5m' \
+  "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
+grep -Fq 'CPUQuota=400%' "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
 grep -Fq 'MemoryMax=6G' "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
+
+# A 64K context against MemoryMax=6G saturates the cgroup for a 4B model and
+# forces continuous reclaim, so the ceiling must stay well under it.
+ollama_context="$(
+  sed -n 's/^Environment="OLLAMA_CONTEXT_LENGTH=\([0-9]*\)"$/\1/p' \
+    "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"
+)"
+if ((ollama_context > 32768)); then
+  printf 'OLLAMA_CONTEXT_LENGTH=%s risks exhausting MemoryMax=6G\n' \
+    "$ollama_context" >&2
+  exit 1
+fi
+# keep_alive=0 unloads between every tool step, discarding the prompt cache and
+# re-evaluating the whole conversation prefix on each step.
+if grep -Fq 'OLLAMA_KEEP_ALIVE=0' \
+  "$repo_root/deploy/systemd/ollama.service.d/colony-autopilot.conf"; then
+  printf 'OLLAMA_KEEP_ALIVE=0 discards the prompt cache between tool steps\n' >&2
+  exit 1
+fi
+
+benchmark="$repo_root/deploy/scripts/benchmark.sh"
+# A trivial prompt measures model load time only. Agentic tool loops are
+# dominated by prompt evaluation of a multi-thousand-token conversation prefix,
+# so acceptance must score throughput at a realistic prompt size.
+grep -Fq 'prompt_eval_count' "$benchmark"
+grep -Fq 'prompt_eval_duration' "$benchmark"
+grep -Fq -- '--min-prompt-eval-rate' "$benchmark"
+if grep -Eq 'CPUQuotaPerSecUSec=1\[\.\]5' "$benchmark"; then
+  printf 'benchmark must accept every supported CPU profile\n' >&2
+  exit 1
+fi
 
 if grep -R -E '(level\.dat|\.mca|NBT)' "$repo_root/deploy/scripts" >/dev/null; then
   printf 'deployment scripts must not read or edit Minecraft world formats\n' >&2

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+installed_common="/usr/local/lib/colony-agent/ops/lib/common.sh"
+if [[ -f "$installed_common" ]]; then
+  source "$installed_common"
+else
+  source "$script_dir/../lib/common.sh"
+fi
+
+readonly BACKGROUND_QUOTA='CPUQuota=400%'
+readonly BURST_QUOTA='CPUQuota=800%'
+
+usage() {
+  cat <<'EOF'
+Usage: colony-agent-mode background|burst|status [--apply]
+
+Switches the Ollama CPU allocation between the two supported profiles. The
+default is a dry run; status is always read-only.
+
+  background  CPUQuota=400% - coexists with the Minecraft server, for triage
+  burst       CPUQuota=800% - full inference speed, for dedicated agent work
+  status      Report the effective quota and the profile it corresponds to
+
+The quota is applied with "systemctl set-property --runtime", so a reboot
+always returns to the background profile shipped in the systemd drop-in. Burst
+cannot be left applied across a restart.
+
+Generation throughput saturates host memory bandwidth at 800%; a higher quota
+is unusable because Ollama defaults to one thread per physical core.
+EOF
+}
+
+profile=""
+while (($#)); do
+  case "$1" in
+    background|burst|status)
+      [[ -z "$profile" ]] || die "only one profile may be given"
+      profile="$1"
+      shift
+      ;;
+    --apply)
+      APPLY=true
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "$profile" ]] || {
+  usage >&2
+  die "a profile is required"
+}
+
+report_status() {
+  local quota
+  quota="$(
+    systemctl show ollama.service --property=CPUQuotaPerSecUSec --value
+  )"
+  local label
+  case "$quota" in
+    4s|4.000000s) label=background ;;
+    8s|8.000000s) label=burst ;;
+    *) label=unrecognized ;;
+  esac
+  printf 'ollama_cpu_quota=%s profile=%s\n' "$quota" "$label"
+  systemctl show ollama.service \
+    --property=MemoryMax,MemoryCurrent,ActiveState
+}
+
+if [[ "$profile" == status ]]; then
+  require_command systemctl
+  report_status
+  exit 0
+fi
+
+if [[ "$profile" == background ]]; then
+  quota="$BACKGROUND_QUOTA"
+else
+  quota="$BURST_QUOTA"
+fi
+
+require_apply_root
+if [[ "$APPLY" == true ]]; then
+  require_command systemctl
+fi
+run systemctl set-property --runtime ollama.service "$quota"
+
+if [[ "$APPLY" == true ]]; then
+  log "applied $profile profile ($quota)"
+  report_status
+fi

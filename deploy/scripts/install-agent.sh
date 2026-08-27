@@ -83,6 +83,12 @@ if [[ "$APPLY" != true ]]; then
   quote_command install -m 0644 "$deploy_dir/systemd/colony-agent.service" \
     /etc/systemd/system/colony-agent.service
   quote_command install -m 0644 \
+    "$deploy_dir/systemd/colony-agent-proxy.service" \
+    /etc/systemd/system/colony-agent-proxy.service
+  quote_command install -m 0644 \
+    "$deploy_dir/systemd/colony-agent-proxy.socket" \
+    /etc/systemd/system/colony-agent-proxy.socket
+  quote_command install -m 0644 \
     "$deploy_dir/systemd/ollama.service.d/colony-autopilot.conf" \
     /etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf
   quote_command install -m 0440 "$deploy_dir/sudoers/colony-agent" \
@@ -96,7 +102,8 @@ if [[ "$APPLY" != true ]]; then
   quote_command systemctl enable --now colony-agent-operation.socket
   quote_command systemctl restart ollama.service
   [[ "$start_service" == true ]] &&
-    quote_command systemctl enable --now colony-agent.service
+    quote_command systemctl enable --now colony-agent.service \
+      colony-agent-proxy.socket
   exit 0
 fi
 
@@ -112,6 +119,9 @@ require_command visudo
   die "missing OpenCode config"
 [[ -f "$deploy_dir/systemd/colony-agent.service" ]] ||
   die "missing colony-agent systemd unit"
+[[ -f "$deploy_dir/systemd/colony-agent-proxy.service" &&
+  -f "$deploy_dir/systemd/colony-agent-proxy.socket" ]] ||
+  die "missing colony-agent proxy systemd units"
 visudo -c -f "$deploy_dir/sudoers/colony-agent"
 
 if ! id colony-agent >/dev/null 2>&1; then
@@ -167,9 +177,12 @@ install -d -m 0750 "$backup_root"
 for path in \
   /etc/colony-agent/opencode.json \
   /etc/systemd/system/colony-agent.service \
+  /etc/systemd/system/colony-agent-proxy.service \
+  /etc/systemd/system/colony-agent-proxy.socket \
   /etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf \
   /usr/local/lib/colony-agent/run-colony-agent \
-  /usr/local/sbin/colony-agent-cli; do
+  /usr/local/sbin/colony-agent-cli \
+  /usr/local/sbin/colony-agent-mode; do
   if [[ -e "$path" ]]; then
     install -D -m 0640 "$path" "$backup_root$path"
   fi
@@ -182,6 +195,10 @@ if [[ ! -e /etc/colony-agent/opencode.json ||
 fi
 install -m 0644 "$deploy_dir/systemd/colony-agent.service" \
   /etc/systemd/system/colony-agent.service
+install -m 0644 "$deploy_dir/systemd/colony-agent-proxy.service" \
+  /etc/systemd/system/colony-agent-proxy.service
+install -m 0644 "$deploy_dir/systemd/colony-agent-proxy.socket" \
+  /etc/systemd/system/colony-agent-proxy.socket
 install -D -m 0644 \
   "$deploy_dir/systemd/ollama.service.d/colony-autopilot.conf" \
   /etc/systemd/system/ollama.service.d/zz-colony-autopilot.conf
@@ -189,6 +206,8 @@ install -m 0755 "$deploy_dir/scripts/run-colony-agent" \
   /usr/local/lib/colony-agent/run-colony-agent
 install -m 0755 "$deploy_dir/scripts/colony-agent-cli" \
   /usr/local/sbin/colony-agent-cli
+install -m 0755 "$deploy_dir/scripts/colony-agent-mode" \
+  /usr/local/sbin/colony-agent-mode
 install -m 0755 "$deploy_dir/scripts/colony-agent-op" \
   /usr/local/bin/colony-agent-op
 install -m 0755 "$deploy_dir/scripts/colony-agent-operation-dispatch" \
@@ -221,6 +240,8 @@ if [[ ! -e /etc/colony-agent/agent.env ]]; then
   cat >/etc/colony-agent/agent.env <<EOF
 COLONY_AGENT_HOST=192.168.1.171
 COLONY_AGENT_PORT=4096
+COLONY_AGENT_BACKEND_HOST=127.0.0.1
+COLONY_AGENT_BACKEND_PORT=4097
 OPENCODE_SERVER_USERNAME=opencode
 OPENCODE_SERVER_PASSWORD=$password
 EOF
@@ -257,7 +278,7 @@ fi
 if [[ "$start_service" == true ]]; then
   [[ -d "$agent_workspace/.git" ]] ||
     die "agent workspace is not initialized: $agent_workspace"
-  systemctl enable --now colony-agent.service
+  systemctl enable --now colony-agent.service colony-agent-proxy.socket
 fi
 
 log "installed OpenCode $opencode_version; credentials are in /etc/colony-agent/agent.env"

@@ -59,6 +59,8 @@ require_apply_root
 
 managed_paths=(
   /etc/systemd/system/colony-agent.service
+  /etc/systemd/system/colony-agent-proxy.service
+  /etc/systemd/system/colony-agent-proxy.socket
   /etc/systemd/system/colony-agent-operation.socket
   /etc/systemd/system/colony-agent-operation@.service
   /etc/sudoers.d/colony-agent
@@ -72,6 +74,7 @@ managed_paths=(
   /usr/local/bin/colony-agent-op
   /usr/local/sbin/authorize-agent-deploy
   /usr/local/sbin/colony-agent-cli
+  /usr/local/sbin/colony-agent-mode
   /usr/local/sbin/colony-agent-deploy
   /usr/local/sbin/colony-agent-restart
   /usr/local/sbin/colony-agent-rollback
@@ -80,6 +83,7 @@ managed_paths=(
 )
 
 if [[ "$APPLY" != true ]]; then
+  quote_command systemctl disable --now colony-agent-proxy.socket
   quote_command systemctl disable --now colony-agent.service
   quote_command systemctl disable --now colony-agent-operation.socket
   for path in "${managed_paths[@]}"; do
@@ -101,6 +105,8 @@ if [[ "$APPLY" != true ]]; then
   exit 0
 fi
 
+systemctl disable --now colony-agent-proxy.socket 2>/dev/null || true
+systemctl stop colony-agent-proxy.service 2>/dev/null || true
 systemctl disable --now colony-agent.service 2>/dev/null || true
 systemctl disable --now colony-agent-operation.socket 2>/dev/null || true
 rm -f -- "${managed_paths[@]}"
