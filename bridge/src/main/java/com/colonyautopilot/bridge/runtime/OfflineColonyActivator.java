@@ -73,9 +73,11 @@ public final class OfflineColonyActivator implements AutoCloseable {
         }
 
         reconcileLeases();
-        reason = leases.isEmpty()
-            ? "no offline eligible colonies"
-            : "offline colony progression active";
+        reason = OfflineProgressReport.describe(leases.size(), tickingChunkCount());
+    }
+
+    private int tickingChunkCount() {
+        return leases.values().stream().mapToInt(lease -> lease.chunks().size()).sum();
     }
 
     public Status status() {
@@ -87,7 +89,7 @@ public final class OfflineColonyActivator implements AutoCloseable {
             BridgeServerConfig.OFFLINE_STALL_RECOVERY_ENABLED.get(),
             stallRecovery.recoveryCount(),
             stallRecovery.lastRecovery(),
-            leases.values().stream().mapToInt(lease -> lease.chunks().size()).sum()
+            tickingChunkCount()
         );
     }
 

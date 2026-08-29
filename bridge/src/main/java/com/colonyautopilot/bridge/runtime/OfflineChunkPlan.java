@@ -14,6 +14,11 @@ final class OfflineChunkPlan {
             throw new IllegalArgumentException("invalid offline chunk plan bounds");
         }
 
+        // Anchors arrive in priority order with the colony center first, and
+        // insertion order is preserved, so truncating at the budget keeps the
+        // most valuable chunks. Returning nothing instead would leave the
+        // caller force-loading no chunks at all, which silently freezes the
+        // colony while the lease still reports itself active.
         Set<ChunkCoordinate> chunks = new LinkedHashSet<>();
         for (BlockCoordinate anchor : anchors) {
             int centerX = Math.floorDiv(anchor.x(), 16);
@@ -21,8 +26,8 @@ final class OfflineChunkPlan {
             for (int x = centerX - radius; x <= centerX + radius; x++) {
                 for (int z = centerZ - radius; z <= centerZ + radius; z++) {
                     chunks.add(new ChunkCoordinate(x, z));
-                    if (chunks.size() > maximumChunks) {
-                        return List.of();
+                    if (chunks.size() >= maximumChunks) {
+                        return List.copyOf(chunks);
                     }
                 }
             }
