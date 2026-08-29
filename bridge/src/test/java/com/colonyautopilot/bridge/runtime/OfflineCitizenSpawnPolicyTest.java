@@ -7,11 +7,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OfflineCitizenSpawnPolicyTest {
     @Test
-    void respawnsOnlyMissingCitizensDuringSafeOfflineProgress() {
-        assertTrue(OfflineCitizenSpawnPolicy.shouldSpawn(true, false, false, true));
-        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(false, false, false, true));
-        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(true, true, false, true));
-        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(true, false, true, true));
-        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(true, false, false, false));
+    void respawnsMissingCitizensDuringSafeOfflineProgress() {
+        assertTrue(OfflineCitizenSpawnPolicy.shouldSpawn(true, false, false, true, true));
+        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(false, false, false, true, true));
+        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(true, true, false, true, true));
+        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(true, false, false, false, true));
+    }
+
+    // An entity is only ticked if it is in the level's entity tick list, and it
+    // joins that list when it is added to a chunk that already ticks entities.
+    // A citizen loaded before the lease applied its chunk ticket therefore sits
+    // in the level, inside a now-ticking chunk, and never runs. Nothing detects
+    // that from outside, so each citizen is re-added once per lease.
+    @Test
+    void refreshesAPresentCitizenOncePerLease() {
+        assertTrue(OfflineCitizenSpawnPolicy.shouldSpawn(true, false, true, true, false));
+        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(true, false, true, true, true));
+    }
+
+    @Test
+    void neverRefreshesWhileTheColonyIsUnderAttack() {
+        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(true, true, true, true, false));
+    }
+
+    @Test
+    void neverRefreshesWithoutALease() {
+        assertFalse(OfflineCitizenSpawnPolicy.shouldSpawn(false, false, true, true, false));
     }
 }

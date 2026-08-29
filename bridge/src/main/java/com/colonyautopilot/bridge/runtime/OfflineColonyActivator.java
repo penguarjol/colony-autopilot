@@ -129,8 +129,10 @@ public final class OfflineColonyActivator implements AutoCloseable {
                     true,
                     colony.isColonyUnderAttack(),
                     citizen.getEntity().isPresent(),
-                    lastPosition != null
+                    lastPosition != null,
+                    lease.refreshedCitizens().contains(citizen.getId())
                 ) && level.hasChunkAt(lastPosition)) {
+                    lease.refreshedCitizens().add(citizen.getId());
                     colony.getCitizenManager().spawnOrCreateCitizen(
                         citizen,
                         level,
@@ -163,7 +165,9 @@ public final class OfflineColonyActivator implements AutoCloseable {
             new GameProfile(owner, "ColonyAutoLease")
         );
         colony.getPackageManager().getImportantColonyPlayers().add(player);
-        return new Lease(colony, level, owner, player, new HashSet<>());
+        return new Lease(
+            colony, level, owner, player, new HashSet<>(), new HashSet<>()
+        );
     }
 
     private void release(ColonyKey key) {
@@ -202,7 +206,8 @@ public final class OfflineColonyActivator implements AutoCloseable {
         ServerLevel level,
         UUID owner,
         FakePlayer player,
-        Set<OfflineChunkPlan.ChunkCoordinate> chunks
+        Set<OfflineChunkPlan.ChunkCoordinate> chunks,
+        Set<Integer> refreshedCitizens
     ) {
     }
 
