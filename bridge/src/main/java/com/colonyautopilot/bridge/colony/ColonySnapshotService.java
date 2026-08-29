@@ -111,7 +111,7 @@ public final class ColonySnapshotService {
         List<CitizenSnapshot> citizens = colony.getCitizenManager()
             .getCitizens()
             .stream()
-            .map(ColonySnapshotService::snapshotCitizen)
+            .map(citizen -> snapshotCitizen(citizen, level))
             .toList();
         return new ColonySnapshot(
             colony.getID(),
@@ -222,10 +222,24 @@ public final class ColonySnapshotService {
         );
     }
 
-    private static CitizenSnapshot snapshotCitizen(ICitizenData citizen) {
+    private static CitizenSnapshot snapshotCitizen(
+        ICitizenData citizen,
+        ServerLevel level
+    ) {
         var job = citizen.getJob();
         var workerAi = job == null ? null : job.getWorkerAI();
         IBuilding workBuilding = citizen.getWorkBuilding();
+        boolean entityPresent = citizen.getEntity().isPresent();
+        boolean entityInLevel = citizen.getEntity()
+            .filter(entity -> entity.isAlive()
+                && level.getEntity(entity.getUUID()) == entity)
+            .isPresent();
+        BlockPos position = citizen.getEntity()
+            .map(entity -> entity.blockPosition())
+            .orElseGet(citizen::getLastPosition);
+        boolean chunkLoaded = position != null && level.hasChunkAt(position);
+        boolean chunkEntityTicking = chunkLoaded
+            && level.isPositionEntityTicking(position);
         return new CitizenSnapshot(
             citizen.getId(),
             citizen.getName(),
@@ -237,12 +251,21 @@ public final class ColonySnapshotService {
             citizen.isPaused(),
             citizen.isWorking(),
             citizen.isAsleep(),
-            citizen.getEntity().isPresent(),
+            entityPresent,
             nullablePosition(citizen.getLastPosition()),
             workBuilding == null
                 ? null
                 : Position.from(workBuilding.getPosition()),
-            citizen.getSaturation()
+            citizen.getSaturation(),
+            entityInLevel,
+            chunkLoaded,
+            chunkEntityTicking,
+            CitizenLiveness.diagnose(
+                entityPresent,
+                entityInLevel,
+                chunkLoaded,
+                chunkEntityTicking
+            )
         );
     }
 
@@ -371,7 +394,11 @@ public final class ColonySnapshotService {
         boolean entityPresent,
         Position lastPosition,
         Position workBuilding,
-        double saturation
+        double saturation,
+        boolean entityInLevel,
+        boolean chunkLoaded,
+        boolean chunkEntityTicking,
+        String liveness
     ) {
     }
 

@@ -1,5 +1,7 @@
 package com.colonyautopilot.bridge.ipc;
 
+import com.colonyautopilot.bridge.ColonyAutopilotBridge;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -30,9 +32,16 @@ public final class FileSpoolTransport implements BridgeTransport {
         PosixFilePermission.OWNER_WRITE
     );
 
+    // A tombstone only has to outlive the freshness window that makes a replayed
+    // request stale. An hour is two orders of magnitude beyond that and keeps
+    // the response directory small enough to scan cheaply.
+    private static final long RETENTION_MILLIS = 3_600_000L;
+    private static final long PRUNE_INTERVAL_MILLIS = 300_000L;
+
     private final Path requests;
     private final Path responses;
     private final Path rejected;
+    private long nextPruneAtMillis;
 
     public FileSpoolTransport() throws IOException {
         this(PRIVATE_DIRECTORY);
@@ -50,6 +59,11 @@ public final class FileSpoolTransport implements BridgeTransport {
     public List<InboundMessage> poll(int maximum) throws IOException {
         if (maximum < 1) {
             return List.of();
+        }
+        long now = System.currentTimeMillis();
+        if (now >= nextPruneAtMillis) {
+            nextPruneAtMillis = now + PRUNE_INTERVAL_MILLIS;
+            pruneExpired(now);
         }
         List<Path> candidates = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(requests, "*.json")) {
@@ -71,17 +85,74 @@ public final class FileSpoolTransport implements BridgeTransport {
                 moveAtomically(candidate, duplicate);
                 continue;
             }
-            validateRequestFile(candidate);
-            Path claimed = claimPath(candidate.getFileName().toString());
+            // One unreadable request must not abort the cycle. A single file the
+            // server cannot read -- a stray root-owned drop, a truncated write --
+            // otherwise starves every request behind it in filename order, on
+            // every tick, until an operator notices.
             try {
-                moveAtomically(candidate, claimed);
-            } catch (java.nio.file.NoSuchFileException ignored) {
-                continue;
+                validateRequestFile(candidate);
+                Path claimed = claimPath(candidate.getFileName().toString());
+                try {
+                    moveAtomically(candidate, claimed);
+                } catch (java.nio.file.NoSuchFileException ignored) {
+                    continue;
+                }
+                byte[] bytes = Files.readAllBytes(claimed);
+                messages.add(
+                    new InboundMessage(token, new String(bytes, StandardCharsets.UTF_8))
+                );
+            } catch (IOException exception) {
+                quarantine(candidate, token, exception);
             }
-            byte[] bytes = Files.readAllBytes(claimed);
-            messages.add(new InboundMessage(token, new String(bytes, StandardCharsets.UTF_8)));
         }
         return List.copyOf(messages);
+    }
+
+    /**
+     * Drops tombstones and uncollected responses past the retention window.
+     * Pruning failures are not fatal: a spool that cannot be tidied is still a
+     * spool that works.
+     */
+    void pruneExpired(long nowMillis) {
+        long cutoff = nowMillis - RETENTION_MILLIS;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(responses)) {
+            for (Path entry : stream) {
+                try {
+                    if (Files.getLastModifiedTime(entry).toMillis() < cutoff) {
+                        Files.deleteIfExists(entry);
+                    }
+                } catch (IOException ignored) {
+                    // Raced with a concurrent read or write; try again next sweep.
+                }
+            }
+        } catch (IOException exception) {
+            ColonyAutopilotBridge.LOGGER.warn(
+                "Could not prune the IPC response spool", exception
+            );
+        }
+    }
+
+    private void quarantine(Path candidate, String token, IOException cause) {
+        ColonyAutopilotBridge.LOGGER.error(
+            "Quarantining unreadable IPC request {}", token, cause
+        );
+        Path target = rejected.resolve(
+            "unreadable." + UUID.randomUUID() + "." + candidate.getFileName()
+        );
+        try {
+            moveAtomically(candidate, target);
+        } catch (IOException failure) {
+            // The claim may already have been taken; deleting keeps the queue
+            // moving rather than reprocessing the same poison every tick.
+            try {
+                Files.deleteIfExists(claimPath(token));
+                Files.deleteIfExists(candidate);
+            } catch (IOException ignored) {
+                ColonyAutopilotBridge.LOGGER.error(
+                    "Could not clear unreadable IPC request {}", token, failure
+                );
+            }
+        }
     }
 
     @Override
