@@ -38,6 +38,49 @@ lease and making progress are now separate states.
   with responses no client collected. Verified 37,030 -> 246 and 603 -> 0
   uncollected payloads.
 
+## Correction: saturation never proved anything
+
+An earlier revision of this document treated bit-identical saturation as proof
+that citizens were not ticking. That inference is invalid.
+`CitizenData.decreaseSaturation` is a no-op whenever `colony.isActive()` is
+false, so frozen saturation is equally consistent with a perfectly healthy
+ticking citizen in a colony that is not active. `decreaseIdleSaturation` also
+no-ops at night and while asleep.
+
+## The gate that actually decides whether anything is built
+
+`Colony.updateState` picks one of three states, and only `ACTIVE` registers
+work order assignment:
+
+```java
+if (!closeSubscribers.isEmpty()
+    || (loadedChunks.size() > 40 && !importantColonyPlayers.isEmpty())) return ACTIVE;
+if (!importantColonyPlayers.isEmpty() || forceLoadTimer > 0)  return UNLOADED;
+return INACTIVE;
+```
+
+A close subscriber is a real player standing in the colony. With only the
+injected FakePlayer in `importantColonyPlayers`, the colony additionally needs
+more than 40 claimed loaded chunks. Below that it reaches `UNLOADED`, where
+work orders are never assigned, so builders report `canGoIdle()` true, the
+worker AI is never ticked, and it stays at `INIT` forever. That is a closed
+loop and it matches every symptom.
+
+Two consequences worth recording:
+
+- MineColonies explicitly refuses fake players in `addImportantColonyPlayer`
+  and `addCloseSubscriber`. The bridge bypasses that by mutating the live set
+  returned from the getter. It works, but it is a deliberate rejection being
+  routed around.
+- `forceLoadTimer` is unserialized and only ever set from a close subscriber
+  holding colony-manager rank, so after a restart with nobody online
+  MineColonies force-loads nothing regardless of `forceloadcolony` or
+  `loadtime`.
+
+The snapshot now reports `close_subscriber_count`, `important_player_count`
+and the derived `activation_state` so this is a measurement rather than an
+argument.
+
 ## Still open: citizens do not tick
 
 Chunk loading is no longer the blocker, and the snapshot now proves it. All

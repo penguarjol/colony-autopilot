@@ -113,6 +113,10 @@ public final class ColonySnapshotService {
             .stream()
             .map(citizen -> snapshotCitizen(citizen, level))
             .toList();
+        int closeSubscribers =
+            colony.getPackageManager().getCloseSubscribers().size();
+        int importantPlayers =
+            colony.getPackageManager().getImportantColonyPlayers().size();
         return new ColonySnapshot(
             colony.getID(),
             colony.getName(),
@@ -127,7 +131,14 @@ public final class ColonySnapshotService {
             totalBuildings,
             List.copyOf(loadedBuildings),
             workOrders,
-            citizens
+            citizens,
+            closeSubscribers,
+            importantPlayers,
+            ColonyActivationState.describe(
+                closeSubscribers,
+                importantPlayers,
+                colony.getLoadedChunkCount()
+            )
         );
     }
 
@@ -296,7 +307,10 @@ public final class ColonySnapshotService {
         int totalBuildingCount,
         List<BuildingSnapshot> loadedBuildings,
         List<WorkOrderSnapshot> workOrders,
-        List<CitizenSnapshot> citizens
+        List<CitizenSnapshot> citizens,
+        int closeSubscriberCount,
+        int importantPlayerCount,
+        String activationState
     ) {
     }
 

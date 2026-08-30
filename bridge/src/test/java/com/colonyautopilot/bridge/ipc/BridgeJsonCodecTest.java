@@ -169,7 +169,10 @@ class BridgeJsonCodecTest {
                 1,
                 List.of(building),
                 List.of(),
-                List.of()
+                List.of(),
+                0,
+                1,
+                "UNLOADED"
             );
         var colonyJson = codec.payload(colony).getAsJsonObject();
         assertEquals(
