@@ -35,6 +35,18 @@ public final class BridgeState {
         return true;
     }
 
+    /**
+     * Returns an allowance taken for a mutation that then failed.
+     *
+     * <p>Budget is consumed before the mutation runs, so without this a failing
+     * action still charges the day. Eight failing grants exhausted the entire
+     * allowance and locked out every later action.
+     */
+    public void refundBudget(long gameTime) {
+        rollDay(gameTime);
+        actionsThisDay = Math.max(0, actionsThisDay - 1);
+    }
+
     private void rollDay(long gameTime) {
         long currentDay = Math.floorDiv(gameTime, 24_000L);
         if (currentDay != budgetDay) {

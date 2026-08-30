@@ -133,7 +133,9 @@ class BridgeJsonCodecTest {
                 5,
                 true,
                 false,
-                List.of(request)
+                List.of(request),
+                1,
+                false
             );
 
         var json = codec.payload(building).getAsJsonObject();

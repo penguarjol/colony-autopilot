@@ -338,15 +338,30 @@ public final class BridgeActionService implements BridgeActionHandler {
             return budget;
         }
 
+        // Everything past this point has already paid for the action, so any
+        // failure here has to hand the allowance back.
         ItemStack remainder = building.forceTransferStack(stack.copy(), level);
         if (!remainder.isEmpty()) {
+            state.refundBudget(level.getGameTime());
             return Response.rejected(
                 request,
                 "DELIVERY_INSERT_FAILED",
                 "target building did not accept the entire delivery"
             );
         }
-        colony.getRequestManager().overruleRequest(token, stack);
+        try {
+            colony.getRequestManager().overruleRequest(token, stack);
+        } catch (IllegalArgumentException exception) {
+            // The token was valid when the snapshot was taken and is not any
+            // longer: MineColonies resolved or replaced the request during the
+            // round trip. That is a stale read, not a spent action.
+            state.refundBudget(level.getGameTime());
+            return Response.rejected(
+                request,
+                "REQUEST_NO_LONGER_OPEN",
+                "MineColonies request was resolved or replaced before the grant landed"
+            );
+        }
         metrics.recordAction();
         return Response.completed(request, codec.payload(new GrantPayload(
             action.colonyId(),

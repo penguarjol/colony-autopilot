@@ -68,11 +68,17 @@ public final class ColonySnapshotService {
             String buildingType = building.getBuildingType().getRegistryName().toString();
             boolean isBuilder = building instanceof BuildingBuilder
                 && "minecolonies:builder".equals(buildingType);
+            // builderIdle collapses three conditions into one boolean, which
+            // cannot say why a builder is not working. The inputs are reported
+            // alongside it so a stalled builder is diagnosable from a snapshot.
+            int assignedCitizenCount = building.getAllAssignedCitizen().size();
+            boolean hasWorkOrder =
+                isBuilder && ((BuildingBuilder) building).hasWorkOrder();
             boolean builderIdle = isBuilder && ActionPolicy.isBuilderIdle(
                 building.getBuildingLevel(),
                 building.isBuilt(),
-                building.getAllAssignedCitizen().size(),
-                ((BuildingBuilder) building).hasWorkOrder()
+                assignedCitizenCount,
+                hasWorkOrder
             );
             List<Integer> compatibleWorkOrderIds =
                 builderIdle && building instanceof BuildingBuilder builder
@@ -98,7 +104,9 @@ public final class ColonySnapshotService {
                 building.getMaxBuildingLevel(),
                 building.isBuilt(),
                 building.isPendingConstruction(),
-                snapshotRequests(colony, building)
+                snapshotRequests(colony, building),
+                assignedCitizenCount,
+                hasWorkOrder
             ));
         }
         List<WorkOrderSnapshot> workOrders = colony.getWorkManager().getWorkOrders().values().stream()
@@ -325,7 +333,9 @@ public final class ColonySnapshotService {
         int maximumLevel,
         boolean built,
         boolean pendingConstruction,
-        List<RequestSnapshot> openRequests
+        List<RequestSnapshot> openRequests,
+        int assignedCitizenCount,
+        boolean hasWorkOrder
     ) {
     }
 
