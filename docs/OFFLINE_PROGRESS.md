@@ -81,7 +81,48 @@ The snapshot now reports `close_subscriber_count`, `important_player_count`
 and the derived `activation_state` so this is a measurement rather than an
 argument.
 
-## Still open: citizens do not tick
+## ServerCore was suppressing the entity tick
+
+`servercore-forge-1.5.2` deactivates entities that are not near a real player.
+That is exactly "the entity is in the level, its chunk is entity ticking, and
+it never runs". Adding `minecolonies:citizen`, `minecolonies:visitor` and
+`minecolonies:mercenary` to `activation-range.excluded-entity-types` in
+`config/servercore/config.yml` fixed it: across a 21 hour window with nobody
+online, saturation decayed on all four citizens (citizen 2: 37.47 -> 33.95,
+citizen 4: 53.28 -> 49.61). `decreaseIdleSaturation` runs from the entity tick,
+so that is direct evidence the entities now run.
+
+Note for future measurements: saturation moves roughly 0.1 per hour, so a
+sample shorter than a few hours cannot distinguish ticking from frozen, and it
+must be compared at full precision rather than rounded.
+
+## Still open: builders never leave INIT
+
+Every precondition is now measured and satisfied:
+
+```
+colony activation_state = ACTIVE   (close_subscribers 0, important_players 1,
+                                    loaded_chunks 95, threshold is 40)
+hut assigned_citizen_count = 1
+hut has_work_order         = true
+citizen liveness           = live
+```
+
+and the builders still report `ai_state = INIT`, `job_status = IDLE`, with
+`actions_done` unchanged at 16 and 3 across 21 hours.
+
+`CitizenAI` only calls `workerAI.tick()` from its WORK branch, and that branch
+has conditions beyond `canGoIdle()`. Since `canGoIdle()` is false here (the hut
+holds a work order), one of the other conditions in that predicate is what
+keeps selecting IDLE. Reading the full condition list in `CitizenAI` for the
+installed tag and instrumenting whichever term fails is the next step.
+
+Two observations that may or may not be related: both builder huts report
+`pending_construction = true` and are themselves the targets of unclaimed
+upgrade orders, and two citizens report `asleep = true` while the world clock
+reads early morning, which looks like stale persisted state.
+
+## Superseded: citizens do not tick
 
 Chunk loading is no longer the blocker, and the snapshot now proves it. All
 four citizens report:
