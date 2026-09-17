@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Run a command on the command center host over a multiplexed SSH connection.
+#
+# Every separate ssh/scp invocation re-authenticates, and enough of those in
+# quick succession trips the host's fail2ban jail and locks us out for minutes.
+# ControlMaster keeps one authenticated connection alive and reuses it, so a
+# long deploy costs exactly one authentication.
+#
+#   ccssh 'command'        run a command as root on the host
+#   ccssh --put SRC DST    copy a file up
+#   ccssh --close          tear the shared connection down
+set -euo pipefail
+
+readonly CC_HOST="${CC_HOST:-192.168.1.171}"
+readonly CC_USER="${CC_USER:-serveradmin}"
+readonly CC_PASS="${CC_PASS:-changeme}"
+readonly CTL="${TMPDIR:-/tmp}/ccssh-%r@%h:%p"
+
+ssh_opts=(
+  -o ControlMaster=auto
+  -o "ControlPath=$CTL"
+  -o ControlPersist=4h
+  -o PreferredAuthentications=password
+  -o PubkeyAuthentication=no
+  -o ConnectTimeout=20
+  -o LogLevel=ERROR
+)
+
+# Only the very first call needs the password; afterwards the control socket is
+# already open and sshpass is a no-op.
+connect() {
+  if ! ssh -O check -o "ControlPath=$CTL" "$CC_USER@$CC_HOST" >/dev/null 2>&1; then
+    sshpass -p "$CC_PASS" ssh "${ssh_opts[@]}" -fN "$CC_USER@$CC_HOST"
+  fi
+}
+
+case "${1:-}" in
+  --close)
+    ssh -O exit -o "ControlPath=$CTL" "$CC_USER@$CC_HOST" 2>/dev/null || true
+    exit 0
+    ;;
+  --put)
+    shift
+    connect
+    scp "${ssh_opts[@]}" "$@"
+    exit $?
+    ;;
+  --raw)
+    shift
+    connect
+    ssh "${ssh_opts[@]}" "$CC_USER@$CC_HOST" "$@"
+    exit $?
+    ;;
+esac
+
+connect
+# sudo -S reads the password from the first line of stdin and hands the
+# remainder to bash -s, so both travel over the already-authenticated channel.
+{
+  printf '%s\n' "$CC_PASS"
+  printf '%s\n' "${1:?command required}"
+} | ssh "${ssh_opts[@]}" "$CC_USER@$CC_HOST" "sudo -S -p '' bash -s"

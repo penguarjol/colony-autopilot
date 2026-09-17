@@ -1,0 +1,145 @@
+# Phase A: core services. Every web UI binds to loopback only; Caddy publishes
+# them on the LAN behind the shared credential. mem_limit is a hard ceiling so a
+# runaway service is OOM-killed in isolation rather than starving the Minecraft
+# JVM or Ollama.
+name: cc-phase-a
+
+services:
+  glances:
+    image: nicolargo/glances:latest-full
+    container_name: glances
+    restart: unless-stopped
+    # Host PID and network are required for real host metrics rather than
+    # the container's own namespace.
+    pid: host
+    network_mode: host
+    mem_limit: 256m
+    environment:
+      GLANCES_OPT: "-w"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/os-release:/etc/os-release:ro
+
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      # Defaults to an alternate port so installing can never break host name
+      # resolution; pihole-dns-cutover.sh sets PIHOLE_DNS_PORT=53 deliberately.
+      - "127.0.0.1:${PIHOLE_DNS_PORT:-5353}:53/tcp"
+      - "127.0.0.1:${PIHOLE_DNS_PORT:-5353}:53/udp"
+      - "127.0.0.1:8081:80/tcp"
+    environment:
+      TZ: America/New_York
+      FTLCONF_webserver_api_password: ${CC_SHARED_PASSWORD:?CC_SHARED_PASSWORD is required}
+      FTLCONF_dns_listeningMode: all
+      FTLCONF_dns_upstreams: 1.1.1.1;8.8.8.8
+    volumes:
+      - pihole-etc:/etc/pihole
+    cap_add:
+      - NET_ADMIN
+
+  pihole-backup:
+    image: pihole/pihole:latest
+    container_name: pihole-backup
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "127.0.0.1:5354:53/tcp"
+      - "127.0.0.1:5354:53/udp"
+      - "127.0.0.1:8082:80/tcp"
+    environment:
+      TZ: America/New_York
+      FTLCONF_webserver_api_password: ${CC_SHARED_PASSWORD:?CC_SHARED_PASSWORD is required}
+      FTLCONF_dns_listeningMode: all
+      FTLCONF_dns_upstreams: 9.9.9.9;149.112.112.112
+    volumes:
+      - pihole-backup-etc:/etc/pihole
+    cap_add:
+      - NET_ADMIN
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:8083:8083"
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: America/New_York
+      WEBUI_PORT: "8083"
+      TORRENTING_PORT: "6881"
+    volumes:
+      - qbittorrent-config:/config
+      - /srv/media/downloads:/downloads
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    restart: unless-stopped
+    mem_limit: 384m
+    ports:
+      - "127.0.0.1:9117:9117"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: America/New_York
+      AUTO_UPDATE: "true"
+    volumes:
+      - jackett-config:/config
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "127.0.0.1:8084:80"
+    environment:
+      # Caddy already gates this origin with the shared credential; the signup
+      # gate stops anyone who gets past that from self-registering.
+      SIGNUPS_ALLOWED: "false"
+      DOMAIN: http://192.168.1.171:8084
+    volumes:
+      - vaultwarden-data:/data
+
+  ttyd:
+    image: tsl0922/ttyd:latest
+    container_name: ttyd
+    restart: unless-stopped
+    mem_limit: 64m
+    ports:
+      - "127.0.0.1:7681:7681"
+    command: ttyd -W -p 7681 bash
+
+  stirling-pdf:
+    image: stirlingtools/stirling-pdf:latest
+    container_name: stirling-pdf
+    restart: unless-stopped
+    # Bundles a JVM, LibreOffice and Xvfb. At 768m the JVM's MaxRAMPercentage=60
+    # left ~460MB of heap and the process exited during boot, restarting 293
+    # times. Steady-state usage is ~500MB.
+    mem_limit: 1536m
+    ports:
+      - "127.0.0.1:8085:8080"
+    environment:
+      # Caddy already gates this origin; a second login screen is redundant.
+      DOCKER_ENABLE_SECURITY: "false"
+      SECURITY_ENABLELOGIN: "false"
+      LANGS: en_GB
+    volumes:
+      - stirling-data:/usr/share/tessdata
+
+volumes:
+  pihole-etc:
+  pihole-backup-etc:
+  qbittorrent-config:
+  jackett-config:
+  vaultwarden-data:
+  stirling-data:

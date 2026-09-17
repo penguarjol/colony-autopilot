@@ -1,0 +1,68 @@
+# Immich, split out from the rest of Phase C because it is the single largest
+# consumer on the host and gets deployed only after a fresh headroom
+# measurement.
+#
+# The machine-learning container is deliberately omitted. It alone costs
+# roughly 1.5 GiB, and on a box that also runs a Minecraft JVM and a 4B local
+# model that is the difference between healthy and thrashing. Immich is fully
+# functional without it; what is lost is smart search and face recognition.
+name: cc-phase-c-immich
+
+services:
+  immich-db:
+    image: ghcr.io/immich-app/postgres:16-vectorchord0.4.3-pgvectors0.2.0
+    container_name: immich-db
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: immich
+      POSTGRES_USER: immich
+      POSTGRES_PASSWORD: ${CC_SHARED_PASSWORD:?CC_SHARED_PASSWORD is required}
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - immich-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U immich"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  immich-redis:
+    image: docker.io/valkey/valkey:8-bookworm
+    container_name: immich-redis
+    restart: unless-stopped
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:release
+    container_name: immich-server
+    restart: unless-stopped
+    mem_limit: 1536m
+    depends_on:
+      immich-db:
+        condition: service_healthy
+      immich-redis:
+        condition: service_started
+    ports:
+      - "127.0.0.1:2283:2283"
+    environment:
+      DB_HOSTNAME: immich-db
+      DB_USERNAME: immich
+      DB_PASSWORD: ${CC_SHARED_PASSWORD:?CC_SHARED_PASSWORD is required}
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: immich-redis
+      # Points at nothing: with no ML container running, Immich degrades to
+      # plain upload and browse instead of erroring on every import.
+      IMMICH_MACHINE_LEARNING_ENABLED: "false"
+    volumes:
+      - immich-upload:/data
+      - /etc/localtime:/etc/localtime:ro
+
+volumes:
+  immich-db:
+  immich-upload:

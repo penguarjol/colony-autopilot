@@ -1,0 +1,35 @@
+[Unit]
+Description=Command Center reverse proxy (Caddy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/command-center/caddy.env
+ExecStart=/usr/bin/caddy run --config /etc/command-center/Caddyfile --adapter caddyfile
+ExecReload=/usr/bin/caddy reload --config /etc/command-center/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/caddy /var/log/caddy
+
+[Install]
+WantedBy=multi-user.target

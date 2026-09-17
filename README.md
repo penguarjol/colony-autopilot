@@ -140,6 +140,42 @@ Existing configuration is not overwritten unless
 copied below
 `/var/backups/colony-autopilot/install-TIMESTAMP/`.
 
+## Command center
+
+All server services are accessible from a single URL:
+
+```text
+http://192.168.1.171:3000
+```
+
+A Caddy reverse proxy on port 3000 provides unified basic authentication.
+The browser caches credentials for the origin, so a single sign-in covers
+every path. The same username and password from `/etc/colony-agent/agent.env`
+are used everywhere.
+
+| Path | Service |
+|---|---|
+| `/` | Homepage dashboard (service tiles, status, bookmarks) |
+| `/opencode/` | Local coding agent web UI |
+| `/status/` | Uptime Kuma monitoring (uptime history, alerts) |
+| `/ollama/` | Ollama API (direct model queries) |
+
+Install the command center after the coding agent is running:
+
+```bash
+sudo deploy/scripts/install-command-center.sh --apply
+```
+
+Remove it without losing agent or Autopilot state:
+
+```bash
+sudo deploy/scripts/uninstall-command-center.sh --apply
+```
+
+Homepage and Uptime Kuma run as Docker containers bound to localhost. Caddy
+runs as a native systemd service. The standalone systemd socket proxy on
+port 4096 is disabled when the command center is installed; Caddy replaces it.
+
 ## Local coding agent
 
 The local agent runs OpenCode 1.18.22 as the dedicated `colony-agent` account
@@ -147,18 +183,13 @@ and uses `ollama/qwen3.5:4b`. Its writable source tree is
 `/srv/colony-agent/workspaces/colony-autopilot`; the live application and
 Minecraft volume are not agent-writable.
 
-The authenticated browser is available only on the LAN at:
-
-```text
-http://192.168.1.171:4096
-```
-
-OpenCode itself listens on `127.0.0.1:4097`. A hardened systemd socket proxy
-publishes port 4096, so browser ingress does not grant the agent process
-outbound LAN access. Ollama remains reachable only through localhost.
+OpenCode listens on `127.0.0.1:4097`. The command center's Caddy proxy
+publishes it at `/opencode/` on port 3000, so the agent process has no direct
+LAN access. Ollama remains reachable only through localhost.
 
 The generated username and password are stored in
-`/etc/colony-agent/agent.env`, readable by root and the service account. An
+`/etc/colony-agent/agent.env`, readable by root and the service account. The
+same credentials are used by the command center's Caddy proxy. An
 administrator can attach the SSH TUI to the same backend and shared sessions:
 
 ```bash

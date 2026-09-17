@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# Command center deployment orchestrator. Installed to /usr/local/sbin/cc-deploy.
+#
+# All credential lookup and privileged mutation lives here rather than in the
+# commands that invoke it, so a deploy step is a single verb with no secrets on
+# the command line.
+#
+#   cc-deploy phase-b     bring up the media and docs stack
+#   cc-deploy phase-c     bring up the heavy stack
+#   cc-deploy caddy       reload the proxy from the staged Caddyfile
+#   cc-deploy status      report health of everything
+#   cc-deploy headroom    measure RAM with Ollama loaded
+set -euo pipefail
+
+readonly SERVICES_DIR=/opt/command-center/services
+readonly CONFIG_DIR=/etc/command-center
+readonly AGENT_ENV=/etc/colony-agent/agent.env
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || {
+  printf 'cc-deploy must run as root\n' >&2
+  exit 1
+}
+
+log() { printf '%s\n' "$*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+load_secrets() {
+  [[ -f "$AGENT_ENV" ]] || die "missing $AGENT_ENV"
+  # shellcheck disable=SC1090
+  source "$AGENT_ENV"
+  export CC_SHARED_PASSWORD="${OPENCODE_SERVER_PASSWORD:?}"
+
+  local keyfile="$CONFIG_DIR/bookstack.key"
+  if [[ ! -f "$keyfile" ]]; then
+    install -d -m 0750 "$CONFIG_DIR"
+    printf 'base64:%s\n' "$(openssl rand -base64 32)" >"$keyfile"
+    chmod 0640 "$keyfile"
+  fi
+  export BOOKSTACK_APP_KEY
+  BOOKSTACK_APP_KEY="$(cat "$keyfile")"
+}
+
+compose() {
+  local phase="$1"; shift
+  docker compose -f "$SERVICES_DIR/$phase.yml" "$@"
+}
+
+wait_http() {
+  local name="$1" url="$2" tries="${3:-30}" code
+  for ((i = 1; i <= tries; i++)); do
+    code="$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 6 "$url" 2>/dev/null || echo 000)"
+    if [[ "$code" =~ ^(200|301|302|401)$ ]]; then
+      printf '  %-16s %s (%ds)\n' "$name" "$code" "$((i * 5))"
+      return 0
+    fi
+    sleep 5
+  done
+  printf '  %-16s TIMEOUT after %ds\n' "$name" "$((tries * 5))"
+  return 1
+}
+
+cmd_phase_b() {
+  load_secrets
+  [[ -f "$SERVICES_DIR/phase-b.yml" ]] || die "phase-b.yml not staged"
+  compose phase-b up -d
+
+  # Jellyfin belongs to the pre-existing host stack, which already has hardware
+  # transcoding wired up. Start it there instead of duplicating the container.
+  docker compose -f /srv/docker/docker-compose.yml up -d jellyfin 2>&1 | tail -3
+
+  log ""
+  log "waiting for Phase B services"
+  local rc=0
+  wait_http radarr    http://127.0.0.1:7878 36 || rc=1
+  wait_http sonarr    http://127.0.0.1:8989 36 || rc=1
+  wait_http jellyfin  http://127.0.0.1:8096 36 || rc=1
+  wait_http bookstack http://127.0.0.1:6875 48 || rc=1
+  return $rc
+}
+
+cmd_phase_c() {
+  load_secrets
+  [[ -f "$SERVICES_DIR/phase-c.yml" ]] || die "phase-c.yml not staged"
+  local jwt="$CONFIG_DIR/tianji-jwt.key"
+  if [[ ! -f "$jwt" ]]; then
+    openssl rand -hex 32 >"$jwt"
+    chmod 0640 "$jwt"
+  fi
+  export TIANJI_JWT_SECRET
+  TIANJI_JWT_SECRET="$(cat "$jwt")"
+
+  compose phase-c up -d
+  log ""
+  log "waiting for Phase C light tier"
+  local rc=0
+  wait_http code-server http://127.0.0.1:8443 36 || rc=1
+  wait_http tianji      http://127.0.0.1:12345 48 || rc=1
+  return $rc
+}
+
+cmd_immich() {
+  load_secrets
+  [[ -f "$SERVICES_DIR/phase-c-immich.yml" ]] || die "phase-c-immich.yml not staged"
+  compose phase-c-immich up -d
+  log ""
+  log "waiting for Immich"
+  wait_http immich http://127.0.0.1:2283 72
+}
+
+cmd_caddy() {
+  [[ -f /tmp/Caddyfile ]] && install -m 0640 /tmp/Caddyfile "$CONFIG_DIR/Caddyfile"
+  caddy validate --config "$CONFIG_DIR/Caddyfile" --adapter caddyfile >/dev/null ||
+    die "Caddyfile invalid; proxy left untouched"
+  systemctl reload command-center-caddy.service ||
+    systemctl restart command-center-caddy.service
+  sleep 3
+  systemctl is-active --quiet command-center-caddy.service ||
+    die "caddy failed to come back"
+  log "caddy reloaded"
+}
+
+cmd_headroom() {
+  log "priming Ollama so the measurement reflects a loaded model"
+  curl -sS --max-time 180 http://127.0.0.1:11434/api/generate \
+    -d '{"model":"qwen3.5:4b","prompt":"hi","stream":false,"keep_alive":"5m"}' \
+    >/dev/null 2>&1 || log "warning: could not prime Ollama"
+  sleep 5
+  local avail swap ollama_mb si so
+  avail="$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)"
+  swap="$(free -m | awk '/^Swap:/{print $3}')"
+  ollama_mb="$(( $(systemctl show ollama.service -p MemoryCurrent --value) / 1048576 ))"
+
+  # Swap occupancy on its own says nothing: Linux parks cold pages there even
+  # when memory is plentiful. What matters is whether pages are actively moving,
+  # so sample the swap-in/out rate rather than the total.
+  read -r si so <<<"$(vmstat 2 3 | tail -1 | awk '{print $7, $8}')"
+
+  printf 'MemAvailable=%sMB SwapUsed=%sMB SwapInRate=%skB/s SwapOutRate=%skB/s OllamaResident=%sMB\n' \
+    "$avail" "$swap" "$si" "$so" "$ollama_mb"
+
+  if ((avail < 2048)); then
+    printf 'VERDICT=blocked reason=insufficient_available_memory\n'
+  elif ((si > 1000 || so > 1000)); then
+    printf 'VERDICT=blocked reason=active_swap_thrashing\n'
+  else
+    printf 'VERDICT=proceed\n'
+  fi
+}
+
+cmd_status() {
+  printf '=== containers ===\n'
+  docker ps --format '{{.Names}}\t{{.Status}}' | sort
+  printf '\n=== endpoints ===\n'
+  local svc
+  for svc in \
+    "glances|61208" "pihole|8081/admin" "pihole-backup|8082/admin" \
+    "qbittorrent|8083" "jackett|9117/UI/Dashboard" "vaultwarden|8084" \
+    "ttyd|7681" "stirling|8085" "radarr|7878" "sonarr|8989" \
+    "jellyfin|8096" "bookstack|6875" "homarr|7575" "kuma|3002"; do
+    local n="${svc%%|*}" hp="${svc#*|}" code jar
+    jar="$(mktemp)"
+    code="$(curl -sSL -c "$jar" -b "$jar" -o /dev/null -w '%{http_code}' \
+      --max-time 8 "http://127.0.0.1:$hp" 2>/dev/null || echo ERR)"
+    rm -f "$jar"
+    printf '  %-16s %s\n' "$n" "$code"
+  done
+  printf '\n=== memory ===\n'
+  free -m | head -2
+}
+
+case "${1:-}" in
+  phase-b)  cmd_phase_b ;;
+  phase-c)  cmd_phase_c ;;
+  immich)   cmd_immich ;;
+  caddy)    cmd_caddy ;;
+  headroom) cmd_headroom ;;
+  status)   cmd_status ;;
+  *)
+    printf 'usage: cc-deploy {phase-b|phase-c|immich|caddy|headroom|status}\n' >&2
+    exit 64
+    ;;
+esac

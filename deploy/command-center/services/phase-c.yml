@@ -1,0 +1,61 @@
+# Phase C: the heavy tier. Deployed in two steps -- the light pair first, then
+# Immich after re-measuring -- because this consumes the last of the host's
+# memory headroom and the Minecraft JVM has priority.
+name: cc-phase-c
+
+services:
+  code-server:
+    image: lscr.io/linuxserver/code-server:latest
+    container_name: code-server
+    restart: unless-stopped
+    mem_limit: 768m
+    ports:
+      - "127.0.0.1:8443:8443"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: America/New_York
+      # Caddy already gates this origin with the shared credential.
+      AUTH: none
+      DEFAULT_WORKSPACE: /workspace
+    volumes:
+      - code-server-config:/config
+      - /srv/media:/workspace/media
+      - /opt/command-center:/workspace/command-center:ro
+
+  tianji-db:
+    image: postgres:16-alpine
+    container_name: tianji-db
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      POSTGRES_DB: tianji
+      POSTGRES_USER: tianji
+      POSTGRES_PASSWORD: ${CC_SHARED_PASSWORD:?CC_SHARED_PASSWORD is required}
+    volumes:
+      - tianji-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tianji"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  tianji:
+    image: moonrailgun/tianji:latest
+    container_name: tianji
+    restart: unless-stopped
+    mem_limit: 512m
+    depends_on:
+      tianji-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:12345:12345"
+    environment:
+      DATABASE_URL: postgresql://tianji:${CC_SHARED_PASSWORD:?CC_SHARED_PASSWORD is required}@tianji-db:5432/tianji
+      JWT_SECRET: ${TIANJI_JWT_SECRET:?TIANJI_JWT_SECRET is required}
+      ALLOW_REGISTER: "false"
+      ALLOW_OPENAPI: "true"
+
+volumes:
+  code-server-config:
+  tianji-db:

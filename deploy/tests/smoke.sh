@@ -217,5 +217,6 @@ PATH="$idle_test_root:$PATH" TEST_DOCKER_MOUNT="$idle_test_root/other" \
 bash "$repo_root/deploy/tests/agent-smoke.sh"
 bash "$repo_root/deploy/tests/triage-smoke.sh"
 bash "$repo_root/deploy/tests/agent-security.sh"
+bash "$repo_root/deploy/tests/command-center-smoke.sh"
 
 printf 'deployment artifact smoke tests passed\n'

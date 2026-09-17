@@ -1,0 +1,140 @@
+{
+	# The distro caddy.service owns 127.0.0.1:2019. Binding a distinct port keeps
+	# the two units from fighting over the admin endpoint.
+	admin 127.0.0.1:2020
+}
+
+(cc_auth) {
+	basic_auth {
+		{$CC_AUTH_USER} {$CC_AUTH_HASH}
+	}
+}
+
+:3000 {
+	import cc_auth
+
+	handle_path /ollama/* {
+		reverse_proxy 127.0.0.1:11434
+	}
+
+	handle_path /cockpit/* {
+		reverse_proxy https://127.0.0.1:9090 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:7575
+	}
+}
+
+:4096 {
+	import cc_auth
+
+	# Homarr embeds this origin in an iframe widget; the defaults would refuse.
+	header {
+		-X-Frame-Options
+		Content-Security-Policy "frame-ancestors 'self' http://192.168.1.171:3000 http://192.168.1.171:7575"
+	}
+
+	reverse_proxy 127.0.0.1:4097 {
+		header_up Authorization {http.request.header.Authorization}
+	}
+}
+
+:3001 {
+	import cc_auth
+
+	reverse_proxy 127.0.0.1:3002
+}
+
+:9091 {
+	import cc_auth
+
+	reverse_proxy https://127.0.0.1:9090 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+# Phase A services. Each gets its own port because these are single-page apps
+# that break when served from a sub-path.
+:8181 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8081
+}
+
+:8182 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8082
+}
+
+:8183 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8083
+}
+
+:9118 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:9117
+}
+
+:8184 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8084
+}
+
+:7682 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:7681
+}
+
+:8185 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8085
+}
+
+:61209 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:61208
+}
+
+# Phase B services.
+:7879 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:7878
+}
+
+:8990 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8989
+}
+
+:8097 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8096
+}
+
+:6876 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:6875
+}
+
+# Phase C services.
+:8444 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:8443
+}
+
+:12346 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:12345
+}
+
+:2284 {
+	import cc_auth
+	reverse_proxy 127.0.0.1:2283
+}
