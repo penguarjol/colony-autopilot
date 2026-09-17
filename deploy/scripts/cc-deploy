@@ -45,6 +45,22 @@ compose() {
   docker compose -f "$SERVICES_DIR/$phase.yml" "$@"
 }
 
+# Pulling and extracting images is a memory-intensive burst, not a steady load.
+# Gating on MemAvailable or on swap-thrashing rate is not enough: both looked
+# healthy at 190MB genuinely free, and the subsequent Phase C pull took the
+# whole host offline. Require real free memory before any image pull.
+require_free_memory() {
+  local need_mb="$1" free_mb avail_mb
+  free_mb="$(awk '/^MemFree:/{print int($2/1024)}' /proc/meminfo)"
+  avail_mb="$(awk '/MemAvailable:/{print int($2/1024)}' /proc/meminfo)"
+  if ((free_mb < need_mb)); then
+    die "only ${free_mb}MB free (${avail_mb}MB available); need ${need_mb}MB before pulling images.
+Free memory first: stop non-essential containers, or lower Ollama's cap with
+  systemctl set-property --runtime ollama.service MemoryMax=3G"
+  fi
+  log "preflight: ${free_mb}MB free, ${avail_mb}MB available"
+}
+
 wait_http() {
   local name="$1" url="$2" tries="${3:-30}" code
   for ((i = 1; i <= tries; i++)); do
@@ -89,6 +105,7 @@ cmd_phase_c() {
   export TIANJI_JWT_SECRET
   TIANJI_JWT_SECRET="$(cat "$jwt")"
 
+  require_free_memory 2048
   compose phase-c up -d
   log ""
   log "waiting for Phase C light tier"
@@ -101,6 +118,7 @@ cmd_phase_c() {
 cmd_immich() {
   load_secrets
   [[ -f "$SERVICES_DIR/phase-c-immich.yml" ]] || die "phase-c-immich.yml not staged"
+  require_free_memory 2560
   compose phase-c-immich up -d
   log ""
   log "waiting for Immich"
