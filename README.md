@@ -148,6 +148,30 @@ All server services are accessible from a single URL:
 http://192.168.1.171:3000
 ```
 
+The dashboard is Homarr. Its board, integrations, and app tiles are built by
+[`deploy/scripts/build-homarr-board.py`](deploy/scripts/build-homarr-board.py)
+and [`deploy/scripts/place-board-items.py`](deploy/scripts/place-board-items.py)
+through Homarr's own API. Do not edit Homarr's SQLite file directly: raw
+inserts skip validation, never create integration records, and produce tiles
+that render but go nowhere.
+
+Live health for every service is in Uptime Kuma, seeded by
+[`deploy/scripts/configure-kuma.py`](deploy/scripts/configure-kuma.py). Monitors
+target the Caddy-published ports with the shared credential, so a passing
+monitor proves the same path a browser takes.
+
+The agent is wired to the dashboard in both directions. Homarr's MCP server is
+registered in [`deploy/config/opencode.json`](deploy/config/opencode.json), so
+the agent can query and control apps, boards, Docker containers, and DNS
+blocking in natural language; an iframe widget on the board embeds the agent
+so sessions are created and managed without leaving the dashboard.
+
+Verify the whole system with:
+
+```bash
+sudo bash deploy/tests/command-center-integration.sh
+```
+
 A Caddy reverse proxy on port 3000 provides unified basic authentication.
 The browser caches credentials for the origin, so a single sign-in covers
 every path. The same username and password from `/etc/colony-agent/agent.env`

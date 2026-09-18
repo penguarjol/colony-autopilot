@@ -177,7 +177,11 @@ else
 fi
 
 section "Homarr MCP endpoint"
-mcp_key="$(homarr_db "SELECT api_key FROM apiKey LIMIT 1")"
+# apiKey.api_key stores a hash; the usable token is the plaintext cached at
+# creation time, which is also what the agent runtime reads.
+mcp_key=""
+[[ -r /etc/colony-agent/homarr-api.key ]] &&
+  mcp_key="$(tr -d '[:space:]' </etc/colony-agent/homarr-api.key)"
 if [[ -n "$mcp_key" ]]; then
   mcp_resp="$(curl -sS -X POST --max-time 20 \
     -H 'Content-Type: application/json' \
