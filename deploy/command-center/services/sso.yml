@@ -1,0 +1,32 @@
+# Single sign-on for the command center.
+#
+# HTTP basic auth is scoped to an origin, and an origin includes the port. With
+# each service on its own Caddy port, the browser treats every one as a
+# separate realm and challenges again, which is why signing in once led to a
+# stream of prompts.
+#
+# tinyauth issues a session cookie instead. Cookies are scoped to the host and
+# ignore the port, so one login covers every service on this address. Caddy
+# asks tinyauth about each request via forward_auth.
+name: cc-sso
+
+services:
+  tinyauth:
+    image: ghcr.io/steveiliop56/tinyauth:v3
+    container_name: tinyauth
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "127.0.0.1:3010:3000"
+      - "172.17.0.1:3010:3000"
+    environment:
+      # username:bcrypt-hash, generated from the shared credential at install.
+      USERS: ${CC_SSO_USERS:?CC_SSO_USERS is required}
+      SECRET: ${CC_SSO_SECRET:?CC_SSO_SECRET is required}
+      APP_URL: http://192.168.1.171:3010
+      # Without this the cookie is pinned to one port and the whole point is
+      # lost.
+      COOKIE_SECURE: "false"
+      SESSION_EXPIRY: "604800"
+      # Numeric zerolog level; the string names are rejected at startup.
+      LOG_LEVEL: "1"

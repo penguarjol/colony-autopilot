@@ -125,6 +125,32 @@ cmd_immich() {
   wait_http immich http://127.0.0.1:2283 72
 }
 
+# Brings up the single sign-on provider, deriving its credentials from the
+# same shared password everything else uses so there is one store, not two.
+cmd_sso() {
+  load_secrets
+  [[ -f "$SERVICES_DIR/sso.yml" ]] || die "sso.yml not staged"
+
+  local secret_file="$CONFIG_DIR/sso-secret"
+  # tinyauth rejects anything that is not exactly 32 characters, so regenerate
+  # rather than trusting whatever is already on disk.
+  if [[ ! -f "$secret_file" || $(tr -d '\n' <"$secret_file" | wc -c) -ne 32 ]]; then
+    openssl rand -hex 16 | tr -d '\n' >"$secret_file"
+    chmod 0640 "$secret_file"
+  fi
+  export CC_SSO_SECRET
+  CC_SSO_SECRET="$(tr -d '\n' <"$secret_file")"
+
+  local user hash
+  user="$(grep '^OPENCODE_SERVER_USERNAME=' "$AGENT_ENV" | cut -d= -f2-)"
+  hash="$(caddy hash-password --plaintext "$CC_SHARED_PASSWORD")"
+  export CC_SSO_USERS="${user}:${hash}"
+
+  compose sso up -d
+  sleep 8
+  wait_http tinyauth http://127.0.0.1:3010/ 24
+}
+
 cmd_caddy() {
   [[ -f /tmp/Caddyfile ]] && install -m 0640 /tmp/Caddyfile "$CONFIG_DIR/Caddyfile"
   caddy validate --config "$CONFIG_DIR/Caddyfile" --adapter caddyfile >/dev/null ||
@@ -169,7 +195,7 @@ cmd_headroom() {
 # the browser lives, and the Docker bridge, where Uptime Kuma probes from.
 # Without the bridge rule every monitor reports ETIMEDOUT even though the
 # service is healthy.
-readonly CC_PORTS=(3000 3001 4096 9091 8181 8182 8183 8184 8185 8186 9118 7682 61209 7879 8990 8097 6876)
+readonly CC_PORTS=(3000 3001 3010 4096 9091 8181 8182 8183 8184 8185 8186 9118 7682 61209 7879 8990 8097 6876)
 
 # Glances runs with host networking, so it has no docker-proxy rule to bypass
 # UFW the way published containers do. Without an explicit allow, Homarr's
@@ -245,12 +271,13 @@ case "${1:-}" in
   phase-b)  cmd_phase_b ;;
   phase-c)  cmd_phase_c ;;
   immich)   cmd_immich ;;
+  sso)      cmd_sso ;;
   caddy)    cmd_caddy ;;
   firewall) cmd_firewall ;;
   headroom) cmd_headroom ;;
   status)   cmd_status ;;
   *)
-    printf 'usage: cc-deploy {phase-b|phase-c|immich|caddy|firewall|headroom|status}\n' >&2
+    printf 'usage: cc-deploy {phase-b|phase-c|immich|sso|caddy|firewall|headroom|status}\n' >&2
     exit 64
     ;;
 esac

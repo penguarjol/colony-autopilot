@@ -62,6 +62,35 @@ if grep -Eq '^\s*basicauth\b' "$caddyfile"; then
   printf 'basicauth is deprecated; use basic_auth\n' >&2
   exit 1
 fi
+
+# Basic auth is scoped per origin and an origin includes the port, so every
+# service on its own port re-challenged. cc_auth must route through the
+# cookie-based provider instead, and the login UI must sit outside it or the
+# redirect loops.
+if ! grep -A3 -E '^\(cc_auth\)' "$caddyfile" | grep -Fq 'forward_auth'; then
+  printf 'cc_auth must use forward_auth; basic_auth prompts once per port\n' >&2
+  exit 1
+fi
+grep -Fq '/api/auth/caddy' "$caddyfile"
+if ! grep -A2 -E '^:3010 \{' "$caddyfile" | grep -Fq 'reverse_proxy'; then
+  printf 'the sso login origin must not import cc_auth\n' >&2
+  exit 1
+fi
+
+sso="$repo_root/deploy/command-center/services/sso.yml"
+test -f "$sso"
+python3 -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$sso"
+# The string level names are rejected at startup; the secret must be 32 chars.
+grep -Fq 'LOG_LEVEL: "1"' "$sso"
+grep -Fq 'rand -hex 16' "$repo_root/deploy/scripts/cc-deploy"
+
+# Recreating the board dropped every arrangement made in the UI. Placement is
+# additive unless a rebuild is asked for explicitly.
+placer="$repo_root/deploy/scripts/place-board-items.py"
+if ! grep -Fq '"--reset" in sys.argv' "$placer"; then
+  printf 'place-board-items must not delete an existing board by default\n' >&2
+  exit 1
+fi
 # Homarr embeds the agent in an iframe widget; default headers refuse that.
 grep -Fq 'frame-ancestors' "$caddyfile"
 grep -Fq '127.0.0.1:7575' "$caddyfile"

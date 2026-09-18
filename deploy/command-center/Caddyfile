@@ -9,7 +9,20 @@
 	auto_https disable_redirects
 }
 
+# Single sign-on. Basic auth is scoped per origin, and an origin includes the
+# port, so one prompt per service was unavoidable with it. tinyauth issues a
+# host-scoped cookie instead, which every port on this address shares, so one
+# login covers the whole command center.
 (cc_auth) {
+	forward_auth 127.0.0.1:3010 {
+		uri /api/auth/caddy
+		copy_headers Remote-User Remote-Name Remote-Email Remote-Groups
+	}
+}
+
+# Retained for the handful of endpoints that are consumed by scripts rather
+# than browsers, where a redirect to a login page would break the caller.
+(cc_basic_auth) {
 	basic_auth {
 		{$CC_AUTH_USER} {$CC_AUTH_HASH}
 	}
@@ -21,6 +34,12 @@
 # host, which satisfies that requirement once the CA is trusted.
 (cc_tls) {
 	tls internal
+}
+
+# The login UI itself must never sit behind the thing it authenticates, or the
+# redirect loops forever.
+:3010 {
+	reverse_proxy 127.0.0.1:3010
 }
 
 :3000 {

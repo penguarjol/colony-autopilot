@@ -126,8 +126,16 @@ def main() -> None:
     apps = build_apps(api)
     print(f"  {len(apps)} apps in registry")
 
+    # Never delete an existing board. Re-running this used to drop and
+    # recreate it, which silently destroyed any arrangement made in the UI.
+    # Placement is additive from here; pass --reset to opt into a rebuild.
+    reset = "--reset" in sys.argv
     boards = {b["name"]: b["id"] for b in (api.trpc_query("board.getAllBoards") or [])}
-    if BOARD in boards:
+    if BOARD in boards and not reset:
+        print(f"board {BOARD} already exists; leaving its layout alone")
+        print("(pass --reset to rebuild from scratch, discarding changes)")
+        return
+    if BOARD in boards and reset:
         api.trpc_mutate("board.deleteBoard", {"id": boards[BOARD]})
     created = api.trpc_mutate("board.createBoard", {
         "name": BOARD, "columnCount": COLUMNS, "isPublic": False,
