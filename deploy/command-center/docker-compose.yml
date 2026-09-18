@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3002:3001"
+      # Homarr reaches integrations across the Docker bridge.
+      - "172.17.0.1:3002:3001"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

@@ -74,7 +74,15 @@
 
 :8183 {
 	import cc_auth
-	reverse_proxy 127.0.0.1:8083
+
+	# qBittorrent validates the Host header against its own listener and
+	# answers 401 on a mismatch, and it reads any inbound Authorization header
+	# as its own WebUI login. Caddy has already authenticated the caller, so
+	# rewrite Host to the upstream and drop the credential.
+	reverse_proxy 127.0.0.1:8083 {
+		header_up -Authorization
+		header_up Host {upstream_hostport}
+	}
 }
 
 :9118 {

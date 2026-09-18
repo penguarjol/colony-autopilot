@@ -165,6 +165,40 @@ cmd_headroom() {
   fi
 }
 
+# Every Caddy listener needs to be reachable from two places: the LAN, where
+# the browser lives, and the Docker bridge, where Uptime Kuma probes from.
+# Without the bridge rule every monitor reports ETIMEDOUT even though the
+# service is healthy.
+readonly CC_PORTS=(3000 3001 4096 9091 8181 8182 8183 8184 8185 9118 7682 61209 7879 8990 8097 6876)
+
+cmd_firewall() {
+  command -v ufw >/dev/null 2>&1 || { log "ufw not installed; nothing to do"; return 0; }
+  ufw status | head -1 | grep -q active || { log "ufw inactive; nothing to do"; return 0; }
+
+  local port
+  for port in "${CC_PORTS[@]}"; do
+    ufw allow from 192.168.1.0/24 to any port "$port" proto tcp \
+      comment 'command-center LAN' >/dev/null
+    ufw allow from 172.16.0.0/12 to any port "$port" proto tcp \
+      comment 'command-center docker bridge' >/dev/null
+  done
+  log "allowed ${#CC_PORTS[@]} ports from LAN and docker bridge"
+
+  # Reloading ufw rewrites the filter table and has previously wiped Docker's
+  # published-port rules, which is what silently killed Nginx Proxy Manager.
+  # Detect any container that lost its forwarding and put it back.
+  local name published
+  for name in $(docker ps --format '{{.Names}}'); do
+    published="$(docker port "$name" 2>/dev/null | head -1)"
+    if [[ -z "$published" ]] &&
+      [[ "$(docker inspect "$name" --format '{{len .HostConfig.PortBindings}}')" != "0" ]]; then
+      log "restoring lost port forwarding: $name"
+      docker restart "$name" >/dev/null
+    fi
+  done
+  log "firewall applied; docker forwarding verified"
+}
+
 cmd_status() {
   printf '=== containers ===\n'
   docker ps --format '{{.Names}}\t{{.Status}}' | sort
@@ -191,10 +225,11 @@ case "${1:-}" in
   phase-c)  cmd_phase_c ;;
   immich)   cmd_immich ;;
   caddy)    cmd_caddy ;;
+  firewall) cmd_firewall ;;
   headroom) cmd_headroom ;;
   status)   cmd_status ;;
   *)
-    printf 'usage: cc-deploy {phase-b|phase-c|immich|caddy|headroom|status}\n' >&2
+    printf 'usage: cc-deploy {phase-b|phase-c|immich|caddy|firewall|headroom|status}\n' >&2
     exit 64
     ;;
 esac

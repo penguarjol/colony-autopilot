@@ -2,6 +2,16 @@
   "$schema": "https://opencode.ai/config.json",
   "model": "ollama/qwen3.5:4b",
   "default_agent": "maintenance",
+  "mcp": {
+    "homarr": {
+      "type": "remote",
+      "url": "http://127.0.0.1:7575/api/mcp/mcp",
+      "enabled": true,
+      "headers": {
+        "ApiKey": "{env:HOMARR_API_KEY}"
+      }
+    }
+  },
   "agent": {
     "maintenance": {
       "description": "Focused local coding and verification with a bounded tool set",

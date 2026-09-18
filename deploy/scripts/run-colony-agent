@@ -11,6 +11,14 @@ export XDG_CONFIG_HOME="$HOME/config"
 export XDG_DATA_HOME="$HOME/data"
 export OPENCODE_CONFIG="/etc/colony-agent/opencode.json"
 
+# Lets the agent query and control the dashboard through Homarr's MCP server.
+# Written by the board configuration step; absent on a fresh install, in which
+# case the MCP server simply fails to authenticate and the agent still runs.
+if [[ -r /etc/colony-agent/homarr-api.key ]]; then
+  HOMARR_API_KEY="$(cat /etc/colony-agent/homarr-api.key)"
+  export HOMARR_API_KEY
+fi
+
 exec /opt/colony-agent/bin/opencode serve \
   --hostname "$COLONY_AGENT_BACKEND_HOST" \
   --port "$COLONY_AGENT_BACKEND_PORT"
