@@ -194,6 +194,15 @@ cmd_firewall() {
     ufw allow from 172.16.0.0/12 to any port "$port" proto tcp \
       comment 'command-center host-network service' >/dev/null
   done
+
+  # DNS for the whole LAN, which is what makes Pi-hole block ads on phones and
+  # laptops rather than only on this host. Restricted to the local subnet so
+  # this never becomes an open resolver.
+  local proto
+  for proto in tcp udp; do
+    ufw allow from 192.168.1.0/24 to any port 53 proto "$proto" \
+      comment 'pihole LAN DNS' >/dev/null
+  done
   log "allowed ${#CC_PORTS[@]} proxy ports and ${#CC_HOST_NETWORK_PORTS[@]} host-network ports"
 
   # Reloading ufw rewrites the filter table and has previously wiped Docker's

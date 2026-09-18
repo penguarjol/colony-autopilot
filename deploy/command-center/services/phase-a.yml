@@ -30,12 +30,14 @@ services:
     restart: unless-stopped
     mem_limit: 256m
     ports:
+      # Bound on all interfaces so other devices on the LAN can use it as
+      # their resolver, which is what makes ad blocking network-wide rather
+      # than server-only. UFW restricts who may actually reach port 53.
+      #
       # Defaults to an alternate port so installing can never break host name
       # resolution; pihole-dns-cutover.sh sets PIHOLE_DNS_PORT=53 deliberately.
-      - "127.0.0.1:${PIHOLE_DNS_PORT:-5353}:53/tcp"
-      - "172.17.0.1:${PIHOLE_DNS_PORT:-5353}:53/tcp"
-      - "127.0.0.1:${PIHOLE_DNS_PORT:-5353}:53/udp"
-      - "172.17.0.1:${PIHOLE_DNS_PORT:-5353}:53/udp"
+      - "${PIHOLE_DNS_PORT:-5353}:53/tcp"
+      - "${PIHOLE_DNS_PORT:-5353}:53/udp"
       - "127.0.0.1:8081:80/tcp"
       - "172.17.0.1:8081:80/tcp"
     environment:
