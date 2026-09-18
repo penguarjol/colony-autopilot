@@ -6,6 +6,9 @@ name: cc-phase-a
 
 services:
   glances:
+    # Must serve /api/4/, which is what Homarr's health client calls.
+    # Runs with host networking for real host metrics, which also means it has
+    # no docker-proxy rule to bypass UFW, so cc-deploy opens 61208 explicitly.
     image: nicolargo/glances:latest-full
     container_name: glances
     restart: unless-stopped

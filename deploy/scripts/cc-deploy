@@ -171,6 +171,12 @@ cmd_headroom() {
 # service is healthy.
 readonly CC_PORTS=(3000 3001 4096 9091 8181 8182 8183 8184 8185 9118 7682 61209 7879 8990 8097 6876)
 
+# Glances runs with host networking, so it has no docker-proxy rule to bypass
+# UFW the way published containers do. Without an explicit allow, Homarr's
+# container cannot reach it and the health integration fails to connect even
+# though Glances itself is serving fine.
+readonly CC_HOST_NETWORK_PORTS=(61208)
+
 cmd_firewall() {
   command -v ufw >/dev/null 2>&1 || { log "ufw not installed; nothing to do"; return 0; }
   ufw status | head -1 | grep -q active || { log "ufw inactive; nothing to do"; return 0; }
@@ -182,7 +188,13 @@ cmd_firewall() {
     ufw allow from 172.16.0.0/12 to any port "$port" proto tcp \
       comment 'command-center docker bridge' >/dev/null
   done
-  log "allowed ${#CC_PORTS[@]} ports from LAN and docker bridge"
+  # Homarr does not sit on the default bridge, so cover the wider Docker
+  # range rather than 172.17.0.0/16 alone.
+  for port in "${CC_HOST_NETWORK_PORTS[@]}"; do
+    ufw allow from 172.16.0.0/12 to any port "$port" proto tcp \
+      comment 'command-center host-network service' >/dev/null
+  done
+  log "allowed ${#CC_PORTS[@]} proxy ports and ${#CC_HOST_NETWORK_PORTS[@]} host-network ports"
 
   # Reloading ufw rewrites the filter table and has previously wiped Docker's
   # published-port rules, which is what silently killed Nginx Proxy Manager.
