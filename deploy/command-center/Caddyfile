@@ -137,7 +137,12 @@ http://192.168.1.171:8186 {
 
 :61209 {
 	import cc_auth
-	reverse_proxy 127.0.0.1:61208
+
+	# Glances validates the Host header against webui_allowed_hosts and answers
+	# 400 on anything else, so present the upstream's own address.
+	reverse_proxy 127.0.0.1:61208 {
+		header_up Host {upstream_hostport}
+	}
 }
 
 # Phase B services.

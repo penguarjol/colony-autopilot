@@ -42,7 +42,9 @@ MONITORS = [
     ("Pi-hole Backup",      "http", f"http://{H}:8182/admin",          None, None, 120, ["200-299", "300-399"], 0, 1, 0),
     ("qBittorrent",         "http", f"http://{H}:8183",                None, None, 120, ["200-299"], 0, 1, 0),
     ("Jackett",             "http", f"http://{H}:9118/UI/Dashboard",   None, None, 120, ["200-299", "300-399"], 0, 1, 0),
-    ("Vaultwarden",         "http", f"http://{H}:8184",                None, None, 120, ["200-299"], 0, 1, 10),
+    # Served over TLS because the web vault needs a secure context; the
+    # certificate comes from Caddy's internal CA, so skip verification.
+    ("Vaultwarden",         "http", "https://192.168.1.171:8184",       None, None, 120, ["200-299"], 1, 1, 10),
     ("Web Terminal",        "http", f"http://{H}:7682",                None, None, 120, ["200-299"], 0, 1, 10),
     ("Stirling PDF",        "http", f"http://{H}:8185",                None, None, 120, ["200-299", "300-399"], 0, 1, 0),
     ("Glances",             "http", f"http://{H}:61209",               None, None, 120, ["200-299"], 0, 1, 10),

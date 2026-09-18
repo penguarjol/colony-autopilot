@@ -18,17 +18,11 @@ services:
     network_mode: host
     mem_limit: 256m
     environment:
-      # Glances 4.x rejects any request whose Host header is outside
-      # webui_allowed_hosts, which defaults to localhost only. Every request
-      # via the Docker bridge or Caddy carries a different Host and was being
-      # dropped before it reached the API.
-      GLANCES_OPT: >-
-        -w
-        --webui-allowed-hosts
-        localhost,127.0.0.1,172.17.0.1,172.18.0.1,192.168.1.171,homeserver
+      GLANCES_OPT: "-w -C /glances.conf"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /etc/os-release:/etc/os-release:ro
+      - ./glances.conf:/glances.conf:ro
 
   pihole:
     image: pihole/pihole:latest
