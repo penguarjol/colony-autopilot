@@ -176,12 +176,14 @@ def main() -> None:
          3, 2),
         ("rssFeed", {"feedUrls": ["https://www.phoronix.com/rss.php"],
                      "textLinesClamp": 3}, 4, 4),
-        # Agent sessions are created and managed without leaving the board.
-        ("iframe", {"embedUrl": f"http://{HOST}:4096", "allowFullScreen": True},
-         8, 6),
-        # A real host shell, typed into directly on the board.
-        ("iframe", {"embedUrl": f"http://{HOST}:7682", "allowFullScreen": True},
-         8, 5),
+        # Same-origin paths, not the dedicated ports. A cross-origin iframe
+        # does not carry the cached basic-auth credential, so pointing these
+        # at :4096 and :7682 renders an empty box until you happen to have
+        # authenticated to that port separately.
+        ("iframe", {"embedUrl": f"http://{HOST}:3000/opencode/",
+                    "allowFullScreen": True}, 8, 6),
+        ("iframe", {"embedUrl": f"http://{HOST}:3000/terminal/",
+                    "allowFullScreen": True}, 8, 5),
     ]
 
     placed = failed = 0
