@@ -179,6 +179,9 @@ def main() -> None:
         # Agent sessions are created and managed without leaving the board.
         ("iframe", {"embedUrl": f"http://{HOST}:4096", "allowFullScreen": True},
          8, 6),
+        # A real host shell, typed into directly on the board.
+        ("iframe", {"embedUrl": f"http://{HOST}:7682", "allowFullScreen": True},
+         8, 5),
     ]
 
     placed = failed = 0

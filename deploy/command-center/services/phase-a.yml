@@ -132,11 +132,22 @@ services:
     image: tsl0922/ttyd:latest
     container_name: ttyd
     restart: unless-stopped
-    mem_limit: 64m
+    mem_limit: 96m
+    # A shell inside this container would only see the container, which is
+    # useless as a server CLI. Joining the host's namespaces via PID 1 gives a
+    # real host shell; that needs host PID access and the capabilities to
+    # enter those namespaces.
+    pid: host
+    privileged: true
     ports:
       - "127.0.0.1:7681:7681"
       - "172.17.0.1:7681:7681"
-    command: ttyd -W -p 7681 bash
+    # Drops into the shared dashboard account rather than root. It has sudo,
+    # so privileged work is still possible but deliberate.
+    command: >-
+      ttyd -W -p 7681
+      nsenter -t 1 -m -u -i -n -p --
+      su - foorebel
 
   stirling-pdf:
     image: stirlingtools/stirling-pdf:latest

@@ -118,6 +118,15 @@ http://192.168.1.171:8186 {
 
 :7682 {
 	import cc_auth
+
+	# Embedded as a terminal panel on the board, so the same framing allowance
+	# the OpenCode panel needs applies here.
+	header {
+		-X-Frame-Options
+		Content-Security-Policy "frame-ancestors 'self' http://192.168.1.171:3000 http://192.168.1.171:7575"
+	}
+
+	# ttyd upgrades to a websocket for the terminal stream.
 	reverse_proxy 127.0.0.1:7681
 }
 
