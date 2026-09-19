@@ -67,11 +67,14 @@ fi
 # service on its own port re-challenged. cc_auth must route through the
 # cookie-based provider instead, and the login UI must sit outside it or the
 # redirect loops.
-if ! grep -A3 -E '^\(cc_auth\)' "$caddyfile" | grep -Fq 'forward_auth'; then
+if ! sed -n '/^(cc_auth)/,/^}/p' "$caddyfile" | grep -Fq 'forward_auth'; then
   printf 'cc_auth must use forward_auth; basic_auth prompts once per port\n' >&2
   exit 1
 fi
 grep -Fq '/api/auth/caddy' "$caddyfile"
+# A cookie cannot be scoped to an IP literal, so IP arrivals must land on the
+# hostname before the auth check or the session never sticks.
+grep -Fq 'sslip.io' "$caddyfile"
 if ! grep -A2 -E '^:3010 \{' "$caddyfile" | grep -Fq 'reverse_proxy'; then
   printf 'the sso login origin must not import cc_auth\n' >&2
   exit 1
@@ -82,6 +85,9 @@ test -f "$sso"
 python3 -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$sso"
 # The string level names are rejected at startup; the secret must be 32 chars.
 grep -Fq 'LOG_LEVEL: "1"' "$sso"
+# tinyauth scopes the cookie to APP_URL minus its first label, so the auth
+# host must sit one level below the name services are reached by.
+grep -Fq 'APP_URL: http://auth.192.168.1.171.sslip.io:3010' "$sso"
 grep -Fq 'rand -hex 16' "$repo_root/deploy/scripts/cc-deploy"
 
 # Recreating the board dropped every arrangement made in the UI. Placement is

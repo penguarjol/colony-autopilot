@@ -14,6 +14,14 @@
 # host-scoped cookie instead, which every port on this address shares, so one
 # login covers the whole command center.
 (cc_auth) {
+	# Bounce IP-addressed requests to the hostname first. The session cookie
+	# cannot be scoped to an IP literal (see services/sso.yml), so arriving by
+	# IP would mean no session and a fresh login every time. redir is ordered
+	# ahead of forward_auth, so this settles before the auth check runs, and
+	# existing IP bookmarks keep working.
+	@ip host 192.168.1.171
+	redir @ip http://192.168.1.171.sslip.io:{http.request.local.port}{uri} 302
+
 	forward_auth 127.0.0.1:3010 {
 		uri /api/auth/caddy
 		copy_headers Remote-User Remote-Name Remote-Email Remote-Groups
