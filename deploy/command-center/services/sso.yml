@@ -16,9 +16,13 @@ services:
     container_name: tinyauth
     restart: unless-stopped
     mem_limit: 128m
+    # Caddy publishes 3010; tinyauth sits behind it on 3011. Sharing 3010
+    # stops Caddy binding the port at all, and the proxy would point at
+    # itself. caddy validate does not catch either, since both are runtime
+    # faults rather than syntax.
     ports:
-      - "127.0.0.1:3010:3000"
-      - "172.17.0.1:3010:3000"
+      - "127.0.0.1:3011:3000"
+      - "172.17.0.1:3011:3000"
     environment:
       # username:bcrypt-hash, generated from the shared credential at install.
       USERS: ${CC_SSO_USERS:?CC_SSO_USERS is required}

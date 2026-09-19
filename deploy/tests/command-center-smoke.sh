@@ -88,6 +88,31 @@ grep -Fq 'LOG_LEVEL: "1"' "$sso"
 # tinyauth scopes the cookie to APP_URL minus its first label, so the auth
 # host must sit one level below the name services are reached by.
 grep -Fq 'APP_URL: http://auth.192.168.1.171.sslip.io:3010' "$sso"
+
+# caddy validate only parses syntax. A site that proxies to its own port
+# passes it, then fails to bind at runtime and takes the proxy down. Catch
+# the self-loop here instead.
+if python3 - "$caddyfile" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+for site, body in re.findall(r'^:(\d+)\s*\{(.*?)^\}', src, re.S | re.M):
+    if re.search(rf'reverse_proxy\s+127\.0\.0\.1:{site}\b', body):
+        print(f"site :{site} proxies to itself")
+        sys.exit(0)
+sys.exit(1)
+PY
+then
+  printf 'caddy site proxies to its own port; it will fail to bind\n' >&2
+  exit 1
+fi
+
+# The same port cannot be both published by a container and bound by Caddy.
+for port in $(grep -oE '^:[0-9]+' "$caddyfile" | tr -d ':'); do
+  if grep -qE "127\.0\.0\.1:${port}:" "$sso"; then
+    printf 'port %s is bound by caddy and published by sso.yml\n' "$port" >&2
+    exit 1
+  fi
+done
 grep -Fq 'rand -hex 16' "$repo_root/deploy/scripts/cc-deploy"
 
 # Recreating the board dropped every arrangement made in the UI. Placement is

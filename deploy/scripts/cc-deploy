@@ -148,7 +148,9 @@ cmd_sso() {
 
   compose sso up -d
   sleep 8
-  wait_http tinyauth http://127.0.0.1:3010/ 24
+  # Probe the container directly; Caddy's 3010 front door may not be reloaded
+  # onto this yet.
+  wait_http tinyauth http://127.0.0.1:3011/ 24
 }
 
 cmd_caddy() {

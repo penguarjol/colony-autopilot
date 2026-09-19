@@ -22,7 +22,7 @@
 	@ip host 192.168.1.171
 	redir @ip http://192.168.1.171.sslip.io:{http.request.local.port}{uri} 302
 
-	forward_auth 127.0.0.1:3010 {
+	forward_auth 127.0.0.1:3011 {
 		uri /api/auth/caddy
 		copy_headers Remote-User Remote-Name Remote-Email Remote-Groups
 	}
@@ -47,7 +47,7 @@
 # The login UI itself must never sit behind the thing it authenticates, or the
 # redirect loops forever.
 :3010 {
-	reverse_proxy 127.0.0.1:3010
+	reverse_proxy 127.0.0.1:3011
 }
 
 :3000 {
