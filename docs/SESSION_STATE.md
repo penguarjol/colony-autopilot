@@ -1,135 +1,94 @@
 # Session State: 2026-09-18
 
-**Objective:** Fix three reported faults — broken tiles on mobile, lost desktop
-board customizations, and repeated sign-in prompts across services.
+**Objective:** Fix three reported faults — repeated sign-in prompts, lost
+desktop board customizations, and broken tiles on mobile.
 
-**Status:** BLOCKED — cannot execute remote deploys
+**Status:** two fixed and verified, one not started.
 
-## Blocking issue
+## Done
 
-**What:** Every mutating command against `192.168.1.171` is refused by the
-local tool-approval layer. The approval card fails to render with
-`Could not find bubble for toolCallId`, so there is no way to grant it.
+### Repeated sign-in prompts — fixed, verified end to end
 
-**Not a server problem.** Read-only SSH works; the host answers with 22
-containers running and 4712 MB available.
-
-**Attempted:** four deploy invocations, three explicit approval retries.
-
-## Root causes found
-
-### 1. Lost desktop customizations (caused by this project's own tooling)
-
-`deploy/scripts/place-board-items.py` called `board.deleteBoard` and recreated
-the board from scratch on every run. Each rebuild during the previous session
-discarded whatever arrangement had been made in the UI. The previous layouts
-are not recoverable — Homarr has no board history.
-
-Fixed in `4ed7ddb`: placement is additive and exits early when the board
-exists. A rebuild now requires an explicit `--reset`.
-
-### 2. Repeated sign-in prompts
-
-HTTP basic auth realms are scoped to an origin, and an origin includes the
-port. With each service published on its own Caddy port, the browser treats
-every one as a distinct realm and challenges separately. No amount of Caddy
-configuration makes basic auth span ports; it is a property of the scheme.
-
-Fixed in `4ed7ddb` by routing `cc_auth` through tinyauth via `forward_auth`.
-Its session cookie is scoped to the host and ignores the port, so one login
-covers every service. Port 3010 serves the login UI and must stay outside
-`cc_auth` or the redirect loops.
-
-Two startup constraints, both found by reading the container's own failure
-rather than the docs:
-
-- `LOG_LEVEL` is parsed as `int8`. The string `warn` aborts startup.
-- `SECRET` must be exactly 32 characters. `openssl rand -hex 32` yields 64.
-
-### 3. Broken tiles on mobile
-
-Not yet diagnosed. Deferred behind the two above and never reached.
-
-## Blocker found after tinyauth started cleanly
-
-tinyauth is healthy on `:3010`, but it cannot work against a bare IP. It
-derives its cookie domain from `APP_URL` by stripping the first label, so
-`192.168.1.171` becomes `168.1.171`:
+`deploy/tests/verify-sso.sh` logs in once and reuses that session across six
+ports. Latest run on the server:
 
 ```
-INF Using domain for cookie store domain=168.1.171
+login ok
+cookie scoped to 192.168.1.171.sslip.io
+  dashboard      :3000  200
+  uptime-kuma    :3001  302
+  cockpit        :9091  200
+  glances        :8181  403
+  qbittorrent    :8183  200
+  jackett        :9118  301
+one login covered every service
 ```
 
-There is no `--cookie-domain` flag to override it; the only cookie controls
-are `--cookie-secure`, `--secret` and `--session-expiry`.
+None re-prompted. The 403 is Glances' own host allowlist, not an auth failure.
 
-Even setting that aside, RFC 6265 §5.3 requires that when the request host is
-an IP literal, a cookie's `Domain` attribute must equal the host exactly or
-the cookie is discarded. Any `Domain` on an IP-addressed host is rejected, so
-no domain-scoped SSO cookie can work at `192.168.1.171`.
+**Why it happened.** A basic auth realm is scoped to an origin, and an origin
+includes the port. With every service on its own port the browser correctly
+treated each as a separate realm. No Caddy setting changes that.
 
-**This is a property of addressing the server by IP, not of tinyauth.**
-Authelia and the other forward-auth providers hit the same wall.
+**Why it needed a hostname.** RFC 6265 has browsers discard any cookie
+carrying a `Domain` attribute when the request host is an IP literal, so no
+session cookie could span services at `192.168.1.171`. Services are now
+reached at `192.168.1.171.sslip.io`, which public DNS maps to the same
+address, so no router or client configuration was needed. Verified the
+router does not block it. tinyauth sits at `auth.<name>` and scopes its
+cookie to the parent; cookies ignore ports, so one login covers everything.
+IP arrivals redirect to the hostname ahead of the auth check, so old
+bookmarks still work.
 
-The fix is to reach the server by hostname, with the provider one label below
-the shared parent, so the cookie scopes to the parent:
+### Lost desktop customizations — cause found, stopped recurring
 
-- `auth.colony.lan` for tinyauth, giving a cookie domain of `colony.lan`
-- `colony.lan:3000`, `colony.lan:9091` and the rest then share that cookie,
-  because cookies ignore ports
+`place-board-items.py` called `board.deleteBoard` and rebuilt from scratch
+every run, so each rebuild discarded any arrangement made in the UI. The
+previous layouts are unrecoverable; Homarr keeps no board history.
 
-Pi-hole is already the LAN resolver and can serve both records, so no client
-needs configuring. The cost is that the bookmark becomes `http://colony.lan:3000`
-instead of the IP.
+Placement is now additive and exits early when the board exists. Rebuilding
+requires an explicit `--reset`.
 
-A single-label parent such as `.lan` alone will not do — browsers reject
-single-label cookie domains, which is why the host needs a `name.tld` shape.
+## Not started
+
+**Broken tiles on mobile.** Never diagnosed. Needs the board inspected at the
+mobile breakpoint to tell whether it is geometry overflow from
+`fit-mobile-layout.py` or individual tiles erroring.
+
+## One step left over
+
+`deploy/command-center/services/glances.conf` has the new hostname added to
+`webui_allowed_hosts`, committed but not copied to the server. Until then the
+Glances panel 403s. To apply:
+
+```
+./deploy/scripts/ccssh --put deploy/command-center/services/glances.conf \
+  serveradmin@192.168.1.171:/tmp/
+./deploy/scripts/ccssh 'cp /tmp/glances.conf /opt/command-center/services/
+  docker restart glances'
+```
+
+## Traps worth remembering
+
+- The live Caddyfile is `/etc/command-center/Caddyfile`, not the copy under
+  `/opt/command-center/`. Writing to the wrong one reloads nothing and looks
+  like the change had no effect.
+- `caddy validate` only parses syntax. A site bound to a port a container
+  already publishes, or proxying to its own port, passes validation and then
+  fails to start. Both are now covered by the smoke test.
+- The shared credential is `OPENCODE_SERVER_PASSWORD` in agent.env.
+  `CC_SHARED_PASSWORD` is a name `cc-deploy` derives and does not exist in
+  the file.
+- Logging in against the container directly yields a cookie pinned to
+  loopback, because the cookie `Domain` follows the request host. Always
+  authenticate through the auth hostname.
+- `forward_auth` fails closed. If tinyauth is unhealthy when Caddy reloads,
+  every service locks out. `cc-deploy sso` now verifies its own login before
+  the switch, and deploys should keep a `.bak` and restart (not reload) on
+  rollback, since reload cannot revive a dead unit.
 
 ## Current state
 
-- Branch: `main`, last commit `4ed7ddb`, working tree clean.
-- Local verification passes: `deploy/tests/command-center-smoke.sh`.
-- Server: live Caddyfile still uses basic_auth (verified 0 forward_auth matches),
-  dashboard answers 401 as before. No lockout. tinyauth runs healthy on :3010
-  but is not yet referenced by Caddy.
-
-## To resume
-
-Run from the repo root. This pushes the fixed script and compose file, brings
-up the provider, and reloads Caddy onto forward_auth:
-
-```
-./deploy/scripts/ccssh --put deploy/scripts/cc-deploy \
-  deploy/command-center/services/sso.yml serveradmin@192.168.1.171:/tmp/
-./deploy/scripts/ccssh 'install -m 0755 /tmp/cc-deploy /usr/local/sbin/cc-deploy
-  cp /tmp/sso.yml /opt/command-center/services/
-  cc-deploy sso'
-./deploy/scripts/ccssh --put deploy/command-center/Caddyfile \
-  serveradmin@192.168.1.171:/tmp/
-./deploy/scripts/ccssh 'cp /tmp/Caddyfile /opt/command-center/Caddyfile
-  caddy validate --config /opt/command-center/Caddyfile --adapter caddyfile
-  systemctl reload command-center-caddy'
-```
-
-Then verify, in order:
-
-1. `docker logs tinyauth` is clean — no `Failed to parse config`.
-2. `http://192.168.1.171:3010/` serves the login page.
-3. A fresh private window at `http://192.168.1.171:3000` redirects to that
-   login, accepts the shared credential, and returns to the dashboard.
-4. Opening a service on another port, say `:9091`, does **not** prompt again.
-   This is the actual fix; if it still prompts, the cookie is being scoped
-   with the port and `APP_URL` in `sso.yml` is the thing to look at.
-
-## Risk to weigh before applying
-
-The Caddyfile change swaps the auth mechanism for every proxied service at
-once. If tinyauth is unhealthy when Caddy reloads, `forward_auth` fails closed
-and the whole dashboard locks out. Confirm step 1 before step 3. Rollback is
-`git checkout HEAD~1 -- deploy/command-center/Caddyfile` and reload.
-
-## Still open
-
-Broken mobile tiles. Needs the board inspected at the mobile breakpoint to see
-which specific tiles fail and whether it is geometry overflow from
-`fit-mobile-layout.py` or the tiles erroring individually.
+- Branch `main`, last commit `d9a9b69`, tree clean.
+- `deploy/tests/command-center-smoke.sh` passes.
+- Caddy active on the forward_auth config; dashboard reachable.
