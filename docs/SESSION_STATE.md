@@ -1,90 +1,100 @@
-# Session State: 2026-09-17
+# Session State: 2026-09-18
 
-**Objective:** Rebuild the Homarr dashboard to match the reference screenshot, install the full service stack, and wire OpenCode to Homarr bidirectionally.
+**Objective:** Fix three reported faults — broken tiles on mobile, lost desktop
+board customizations, and repeated sign-in prompts across services.
 
-**Status:** BLOCKED — server offline
+**Status:** BLOCKED — cannot execute remote deploys
 
 ## Blocking issue
 
-**What:** `192.168.1.171` stopped responding to all traffic during the Phase C
-image pull. 100% packet loss, ICMP reports "Host is down". This is the host
-itself, not a service.
+**What:** Every mutating command against `192.168.1.171` is refused by the
+local tool-approval layer. The approval card fails to render with
+`Could not find bubble for toolCallId`, so there is no way to grant it.
 
-**Why (most likely):** memory exhaustion during container image extraction.
-The measurement immediately before showed the host was already at its limit:
+**Not a server problem.** Read-only SSH works; the host answers with 22
+containers running and 4712 MB available.
 
-```
-MemAvailable=3524MB  SwapUsed=1931MB  OllamaResident=6134MB
-free -m: total 15403, used 9716, free 190
-```
+**Attempted:** four deploy invocations, three explicit approval retries.
 
-Only 190 MB genuinely free. Docker image extraction is a memory-intensive
-burst (decompression plus page cache) on top of that. The Phase C images
-(Tianji, Postgres, code-server) are several GB combined.
+## Root causes found
 
-**My misjudgement:** I gated Phase C on swap *thrashing rate* and Minecraft TPS,
-both of which looked healthy at that instant (swap I/O 0–50 kB/s, TPS 20.0,
-1.45 ms ticks, 0% I/O wait). Those are steady-state indicators. They do not
-predict a transient allocation spike, and `free` was only 190 MB. The gate
-should have keyed on absolute free memory before a known memory-heavy
-operation, not on whether the system was currently thrashing.
+### 1. Lost desktop customizations (caused by this project's own tooling)
+
+`deploy/scripts/place-board-items.py` called `board.deleteBoard` and recreated
+the board from scratch on every run. Each rebuild during the previous session
+discarded whatever arrangement had been made in the UI. The previous layouts
+are not recoverable — Homarr has no board history.
+
+Fixed in `4ed7ddb`: placement is additive and exits early when the board
+exists. A rebuild now requires an explicit `--reset`.
+
+### 2. Repeated sign-in prompts
+
+HTTP basic auth realms are scoped to an origin, and an origin includes the
+port. With each service published on its own Caddy port, the browser treats
+every one as a distinct realm and challenges separately. No amount of Caddy
+configuration makes basic auth span ports; it is a property of the scheme.
+
+Fixed in `4ed7ddb` by routing `cc_auth` through tinyauth via `forward_auth`.
+Its session cookie is scoped to the host and ignores the port, so one login
+covers every service. Port 3010 serves the login UI and must stay outside
+`cc_auth` or the redirect loops.
+
+Two startup constraints, both found by reading the container's own failure
+rather than the docs:
+
+- `LOG_LEVEL` is parsed as `int8`. The string `warn` aborts startup.
+- `SECRET` must be exactly 32 characters. `openssl rand -hex 32` yields 64.
+
+### 3. Broken tiles on mobile
+
+Not yet diagnosed. Deferred behind the two above and never reached.
+
+## Current state
+
+- Branch: `main`, last commit `4ed7ddb`, working tree clean.
+- Local verification passes: `deploy/tests/command-center-smoke.sh`.
+- Server is running the previous configuration. tinyauth exists there in a
+  crash loop from the first attempt, with the bad `LOG_LEVEL`. It is
+  unreferenced by the live Caddyfile, so it affects nothing.
 
 ## To resume
 
-1. **Power-cycle the server.** It cannot be recovered remotely.
-2. Verify the base stack came back:
-   ```bash
-   ./deploy/scripts/ccssh 'cc-deploy status'
-   ```
-   Expect Minecraft, Ollama, Caddy, Homarr, Uptime Kuma, and all Phase A/B
-   containers running. `restart: unless-stopped` should bring them back.
-3. Confirm DNS survived the reboot — this is the highest-risk item:
-   ```bash
-   ./deploy/scripts/ccssh 'cat /etc/resolv.conf; getent hosts github.com && echo DNS_OK'
-   ```
-   If DNS is broken, roll it back:
-   ```bash
-   ./deploy/scripts/ccssh 'bash /tmp/ccdeploy/scripts/pihole-dns-cutover.sh --rollback --apply'
-   ```
-4. Re-run the integration suite for a clean baseline:
-   ```bash
-   ./deploy/scripts/ccssh 'bash /tmp/command-center-integration.sh'
-   ```
+Run from the repo root. This pushes the fixed script and compose file, brings
+up the provider, and reloads Caddy onto forward_auth:
 
-## Decision needed
+```
+./deploy/scripts/ccssh --put deploy/scripts/cc-deploy \
+  deploy/command-center/services/sso.yml serveradmin@192.168.1.171:/tmp/
+./deploy/scripts/ccssh 'install -m 0755 /tmp/cc-deploy /usr/local/sbin/cc-deploy
+  cp /tmp/sso.yml /opt/command-center/services/
+  cc-deploy sso'
+./deploy/scripts/ccssh --put deploy/command-center/Caddyfile \
+  serveradmin@192.168.1.171:/tmp/
+./deploy/scripts/ccssh 'cp /tmp/Caddyfile /opt/command-center/Caddyfile
+  caddy validate --config /opt/command-center/Caddyfile --adapter caddyfile
+  systemctl reload command-center-caddy'
+```
 
-Phase C (Immich, Tianji, code-server) does not fit in the remaining memory.
-Three options:
+Then verify, in order:
 
-- [ ] **Skip Phase C.** Everything else works; drop photo management, analytics,
-      and browser VS Code.
-- [ ] **Lower Ollama's cap** from 6 GiB to 3 GiB. A 4B model at 16K context needs
-      roughly 3–3.5 GiB, so this is plausible but may fail at larger contexts.
-      Frees ~3 GiB.
-- [ ] **Add RAM.** 15 GiB is the real constraint. 32 GiB would make the whole
-      stack comfortable.
+1. `docker logs tinyauth` is clean — no `Failed to parse config`.
+2. `http://192.168.1.171:3010/` serves the login page.
+3. A fresh private window at `http://192.168.1.171:3000` redirects to that
+   login, accepts the shared credential, and returns to the dashboard.
+4. Opening a service on another port, say `:9091`, does **not** prompt again.
+   This is the actual fix; if it still prompts, the cookie is being scoped
+   with the port and `APP_URL` in `sso.yml` is the thing to look at.
 
-Do not retry Phase C as-is; it will reproduce this outage.
+## Risk to weigh before applying
 
-## Completed and verified before the outage
+The Caddyfile change swaps the auth mechanism for every proxied service at
+once. If tinyauth is unhealthy when Caddy reloads, `forward_auth` fails closed
+and the whole dashboard locks out. Confirm step 1 before step 3. Rollback is
+`git checkout HEAD~1 -- deploy/command-center/Caddyfile` and reload.
 
-- Caddy crash loop fixed (distro `caddy.service` was holding `127.0.0.1:2019`,
-  causing 2898 restarts and taking the whole command center down). Admin
-  endpoint moved to 2020.
-- Nginx Proxy Manager restored (had silently lost its iptables port forwarding,
-  most likely from an earlier `ufw` reload flushing Docker's chains).
-- Cockpit SSO working: `foorebel` / shared password authenticates through PAM
-  and returns a real CSRF token, direct and through Caddy.
-- Phase A installed and all eight services returning 200: Glances, Pi-hole
-  Main + Backup, qBittorrent, Jackett, Vaultwarden, ttyd, Stirling PDF.
-- Pi-hole DNS cutover done, with the fallback guard proven by the script
-  stopping Pi-hole mid-run and confirming the host still resolved.
-- Phase B installed: Radarr, Sonarr, Bookstack + MariaDB. Reused the host's
-  pre-existing Jellyfin rather than duplicating it.
-- Integration test suite written; last run was 27/33 passing, with the six
-  failures all being not-yet-built Homarr work.
+## Still open
 
-## Not started
-
-Uptime Kuma status page, Homarr API bootstrap, Homarr integrations, board
-build, OpenCode MCP wiring, OpenCode iframe embed, final verification.
+Broken mobile tiles. Needs the board inspected at the mobile breakpoint to see
+which specific tiles fail and whether it is geometry overflow from
+`fit-mobile-layout.py` or the tiles erroring individually.
