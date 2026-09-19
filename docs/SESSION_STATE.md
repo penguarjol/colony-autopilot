@@ -50,13 +50,48 @@ rather than the docs:
 
 Not yet diagnosed. Deferred behind the two above and never reached.
 
+## Blocker found after tinyauth started cleanly
+
+tinyauth is healthy on `:3010`, but it cannot work against a bare IP. It
+derives its cookie domain from `APP_URL` by stripping the first label, so
+`192.168.1.171` becomes `168.1.171`:
+
+```
+INF Using domain for cookie store domain=168.1.171
+```
+
+There is no `--cookie-domain` flag to override it; the only cookie controls
+are `--cookie-secure`, `--secret` and `--session-expiry`.
+
+Even setting that aside, RFC 6265 §5.3 requires that when the request host is
+an IP literal, a cookie's `Domain` attribute must equal the host exactly or
+the cookie is discarded. Any `Domain` on an IP-addressed host is rejected, so
+no domain-scoped SSO cookie can work at `192.168.1.171`.
+
+**This is a property of addressing the server by IP, not of tinyauth.**
+Authelia and the other forward-auth providers hit the same wall.
+
+The fix is to reach the server by hostname, with the provider one label below
+the shared parent, so the cookie scopes to the parent:
+
+- `auth.colony.lan` for tinyauth, giving a cookie domain of `colony.lan`
+- `colony.lan:3000`, `colony.lan:9091` and the rest then share that cookie,
+  because cookies ignore ports
+
+Pi-hole is already the LAN resolver and can serve both records, so no client
+needs configuring. The cost is that the bookmark becomes `http://colony.lan:3000`
+instead of the IP.
+
+A single-label parent such as `.lan` alone will not do — browsers reject
+single-label cookie domains, which is why the host needs a `name.tld` shape.
+
 ## Current state
 
 - Branch: `main`, last commit `4ed7ddb`, working tree clean.
 - Local verification passes: `deploy/tests/command-center-smoke.sh`.
-- Server is running the previous configuration. tinyauth exists there in a
-  crash loop from the first attempt, with the bad `LOG_LEVEL`. It is
-  unreferenced by the live Caddyfile, so it affects nothing.
+- Server: live Caddyfile still uses basic_auth (verified 0 forward_auth matches),
+  dashboard answers 401 as before. No lockout. tinyauth runs healthy on :3010
+  but is not yet referenced by Caddy.
 
 ## To resume
 
