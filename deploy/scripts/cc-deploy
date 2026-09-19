@@ -141,9 +141,14 @@ cmd_sso() {
   export CC_SSO_SECRET
   CC_SSO_SECRET="$(tr -d '\n' <"$secret_file")"
 
-  local user hash
+  local user pass hash
   user="$(grep '^OPENCODE_SERVER_USERNAME=' "$AGENT_ENV" | cut -d= -f2-)"
-  hash="$(caddy hash-password --plaintext "$CC_SHARED_PASSWORD")"
+  pass="$CC_SHARED_PASSWORD"
+  # Values in agent.env may be quoted. Hashing the quotes yields a credential
+  # nobody can type, and the failure looks identical to a wrong password.
+  user="${user%\"}"; user="${user#\"}"
+  pass="${pass%\"}"; pass="${pass#\"}"
+  hash="$(caddy hash-password --plaintext "$pass")"
   export CC_SSO_USERS="${user}:${hash}"
 
   compose sso up -d
@@ -151,6 +156,20 @@ cmd_sso() {
   # Probe the container directly; Caddy's 3010 front door may not be reloaded
   # onto this yet.
   wait_http tinyauth http://127.0.0.1:3011/ 24
+
+  # A provider that is up but rejects the shared credential locks every
+  # service at once, so prove the login works before leaving it in place.
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' \
+    --data-binary @<(printf '{"username":%s,"password":%s}' \
+      "$(printf '%s' "$user" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
+      "$(printf '%s' "$pass" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')") \
+    http://127.0.0.1:3011/api/login)"
+  if [[ "$code" != "200" ]]; then
+    die "sso rejected the shared credential (HTTP $code); not switching auth over"
+  fi
+  printf '  sso login verified\n'
 }
 
 cmd_caddy() {
