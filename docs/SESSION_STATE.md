@@ -1,9 +1,9 @@
 # Session State: 2026-09-18
 
-**Objective:** Fix three reported faults — repeated sign-in prompts, lost
+**Objective:** Fix three reported faults — repeated sign-in prompts, lost desktop board customizations, and broken tiles on mobile.
 desktop board customizations, and broken tiles on mobile.
 
-**Status:** two fixed and verified, one not started.
+**Status:** all three fixed and verified.
 
 ## Done
 
@@ -49,32 +49,30 @@ previous layouts are unrecoverable; Homarr keeps no board history.
 Placement is now additive and exits early when the board exists. Rebuilding
 requires an explicit `--reset`.
 
-## Ready but not deployed
+## Deployed and verified
 
-Both are committed and locally verified. The approval layer stopped granting
-remote writes partway through, which is the only reason they are not live.
+Latest `verify-sso.sh` run against the server:
 
-### 1. Mobile widgets sized to their content
+```
+login ok
+cookie scoped to 192.168.1.171.sslip.io
+  dashboard      :3000  200      pihole         :8181  302
+  uptime-kuma    :3001  302      glances        :61209 200
+  cockpit        :9091  200      qbittorrent    :8183  200
+                                 jackett        :9118  301
+one login covered every service
+```
+
+Board geometry, all three layouts: 32 items placed, zero overflow, zero
+zero-size, zero overlaps. Pi-hole `/admin/` returns 200 through a session.
+
+### 1. Widget sizing
 
 `fit-mobile-layout.py` gave every widget outside its wide set a width of
 `columns // 2`, which is one cell on the two-column phone grid, and left the
 authored height alone. Result on mobile: clock, weather and Minecraft at
 1x1 drawing empty boxes, and both iframes three rows tall. Geometry was
 valid the whole time, which is why an overflow check found nothing.
-
-Per-kind minimums now apply. Apply with:
-
-```
-./deploy/scripts/ccssh --put deploy/scripts/fit-mobile-layout.py \
-  deploy/tests/inspect-board-layouts.py serveradmin@192.168.1.171:/tmp/
-./deploy/scripts/ccssh 'set -e
-  D=/var/lib/docker/volumes/docker_homarr_data/_data/db
-  cp "$D/db.sqlite" "$D/db.sqlite.bak-$(date +%s)"
-  docker stop homarr
-  python3 /tmp/fit-mobile-layout.py
-  docker start homarr
-  python3 /tmp/inspect-board-layouts.py'
-```
 
 The script exits non-zero on overflow or undersized tiles, so a bad run is
 visible. Roll back by copying the timestamped `.bak` over `db.sqlite` with
@@ -84,19 +82,6 @@ Homarr stopped.
 
 `:8181` is Pi-hole, which serves its UI under `/admin` and answers 403 at the
 root. The Caddyfile now redirects. Apply with the Caddyfile deploy below.
-
-```
-./deploy/scripts/ccssh --put deploy/command-center/Caddyfile \
-  deploy/tests/verify-sso.sh serveradmin@192.168.1.171:/tmp/
-./deploy/scripts/ccssh 'set -u
-  install -m 0755 /tmp/verify-sso.sh /opt/command-center/tests/verify-sso.sh
-  LIVE=/etc/command-center/Caddyfile
-  cp "$LIVE" "$LIVE.bak"; cp /tmp/Caddyfile "$LIVE"
-  systemctl restart command-center-caddy; sleep 5
-  systemctl is-active --quiet command-center-caddy || {
-    cp "$LIVE.bak" "$LIVE"; systemctl restart command-center-caddy; exit 1; }
-  bash /opt/command-center/tests/verify-sso.sh'
-```
 
 ## Corrected earlier
 
