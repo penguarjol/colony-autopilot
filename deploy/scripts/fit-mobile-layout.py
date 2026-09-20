@@ -40,16 +40,32 @@ COMPACT = {"app"}
 DEFAULT_MIN_HEIGHT = 2
 
 
+# Width each widget wants on a twelve-column desktop grid, scaled down for
+# narrower ones. A formula over the column count cannot express that a clock
+# and a container list want very different amounts of room.
+PREFERRED_WIDTH_AT_12 = {
+    "app": 1,
+    "clock": 2,
+    "weather": 2,
+    "minecraftServerStatus": 3,
+    "dnsHoleSummary": 3,
+    "dnsHoleControls": 3,
+    "rssFeed": 4,
+    "dockerContainers": 6,
+    "healthMonitoring": 6,
+    "iframe": 6,
+}
+DEFAULT_PREFERRED_WIDTH = 3
+
+
 def target_size(kind: str, width: int, height: int, columns: int) -> tuple[int, int]:
     if kind in COMPACT:
         return 1, 1
-    # Half width is one cell on a two-column grid, which is why widgets came
-    # out square and empty. Anything that is not an app tile gets the full
-    # width there.
-    if columns <= 2 or kind in WIDE:
-        new_width = columns
-    else:
-        new_width = max(2, columns // 2)
+    preferred = PREFERRED_WIDTH_AT_12.get(kind, DEFAULT_PREFERRED_WIDTH)
+    scaled = round(preferred * columns / 12)
+    # Never below two cells: one cell leaves no room for a heading and its
+    # content, which is what rendered as an empty box.
+    new_width = min(columns, max(2, scaled))
     return new_width, max(height, MIN_HEIGHT.get(kind, DEFAULT_MIN_HEIGHT))
 
 
@@ -95,10 +111,9 @@ def main() -> None:
             "SELECT id, name, column_count FROM layout ORDER BY breakpoint"
         ).fetchall()
         for layout_id, name, columns in layouts:
-            # The widest layout already reflects how the board was authored.
-            if columns >= 12:
-                print(f"  {name}: left as authored ({columns} columns)")
-                continue
+            # The desktop layout was previously skipped as "authored", which
+            # left eight of its widgets at one cell and unreadable. Every
+            # layout gets sized.
             count = reflow(conn, layout_id, columns)
             print(f"  {name}: reflowed {count} items into {columns} columns")
         conn.commit()
