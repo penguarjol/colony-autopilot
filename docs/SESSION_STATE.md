@@ -49,24 +49,64 @@ previous layouts are unrecoverable; Homarr keeps no board history.
 Placement is now additive and exits early when the board exists. Rebuilding
 requires an explicit `--reset`.
 
-## Not started
+## Ready but not deployed
 
-**Broken tiles on mobile.** Never diagnosed. Needs the board inspected at the
-mobile breakpoint to tell whether it is geometry overflow from
-`fit-mobile-layout.py` or individual tiles erroring.
+Both are committed and locally verified. The approval layer stopped granting
+remote writes partway through, which is the only reason they are not live.
 
-## One step left over
+### 1. Mobile widgets sized to their content
 
-`deploy/command-center/services/glances.conf` has the new hostname added to
-`webui_allowed_hosts`, committed but not copied to the server. Until then the
-Glances panel 403s. To apply:
+`fit-mobile-layout.py` gave every widget outside its wide set a width of
+`columns // 2`, which is one cell on the two-column phone grid, and left the
+authored height alone. Result on mobile: clock, weather and Minecraft at
+1x1 drawing empty boxes, and both iframes three rows tall. Geometry was
+valid the whole time, which is why an overflow check found nothing.
+
+Per-kind minimums now apply. Apply with:
 
 ```
-./deploy/scripts/ccssh --put deploy/command-center/services/glances.conf \
-  serveradmin@192.168.1.171:/tmp/
-./deploy/scripts/ccssh 'cp /tmp/glances.conf /opt/command-center/services/
-  docker restart glances'
+./deploy/scripts/ccssh --put deploy/scripts/fit-mobile-layout.py \
+  deploy/tests/inspect-board-layouts.py serveradmin@192.168.1.171:/tmp/
+./deploy/scripts/ccssh 'set -e
+  D=/var/lib/docker/volumes/docker_homarr_data/_data/db
+  cp "$D/db.sqlite" "$D/db.sqlite.bak-$(date +%s)"
+  docker stop homarr
+  python3 /tmp/fit-mobile-layout.py
+  docker start homarr
+  python3 /tmp/inspect-board-layouts.py'
 ```
+
+The script exits non-zero on overflow or undersized tiles, so a bad run is
+visible. Roll back by copying the timestamped `.bak` over `db.sqlite` with
+Homarr stopped.
+
+### 2. Pi-hole tile
+
+`:8181` is Pi-hole, which serves its UI under `/admin` and answers 403 at the
+root. The Caddyfile now redirects. Apply with the Caddyfile deploy below.
+
+```
+./deploy/scripts/ccssh --put deploy/command-center/Caddyfile \
+  deploy/tests/verify-sso.sh serveradmin@192.168.1.171:/tmp/
+./deploy/scripts/ccssh 'set -u
+  install -m 0755 /tmp/verify-sso.sh /opt/command-center/tests/verify-sso.sh
+  LIVE=/etc/command-center/Caddyfile
+  cp "$LIVE" "$LIVE.bak"; cp /tmp/Caddyfile "$LIVE"
+  systemctl restart command-center-caddy; sleep 5
+  systemctl is-active --quiet command-center-caddy || {
+    cp "$LIVE.bak" "$LIVE"; systemctl restart command-center-caddy; exit 1; }
+  bash /opt/command-center/tests/verify-sso.sh'
+```
+
+## Corrected earlier
+
+The previous note blamed the 403 on the Glances host allowlist. That was
+wrong on two counts: `:8181` is Pi-hole, not Glances (Glances is `:61209`,
+host network mode), and Glances returns 200 for every Host header tried. The
+allowlist edit is reverted. `verify-sso.sh` had the same mislabelling and
+counted 403 as a pass, which is how the broken tile went unnoticed; it now
+fails on 403, 404, 5xx and connection errors.
+
 
 ## Traps worth remembering
 
