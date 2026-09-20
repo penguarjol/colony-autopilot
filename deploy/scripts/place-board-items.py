@@ -18,6 +18,11 @@ sys.path.insert(0, "/tmp")
 from homarr_api import Homarr, HomarrError, shared_credentials  # noqa: E402
 
 HOST = "192.168.1.171"
+
+# Panels must be framed from the same origin as the board. Pointing them at
+# the IP makes them cross-origin: the session cookie is scoped to this name
+# and is not sent to the IP, so the panel renders empty.
+DASHBOARD_ORIGIN = "http://192.168.1.171.sslip.io:3000"
 BRIDGE = "http://172.17.0.1"
 BOARD = "command-center"
 BOARD_TITLE = "Command Center"
@@ -188,9 +193,9 @@ def main() -> None:
         # does not carry the cached basic-auth credential, so pointing these
         # at :4096 and :7682 renders an empty box until you happen to have
         # authenticated to that port separately.
-        ("iframe", {"embedUrl": f"http://{HOST}:3000/opencode/",
+        ("iframe", {"embedUrl": f"{DASHBOARD_ORIGIN}/opencode/",
                     "allowFullScreen": True}, 8, 6),
-        ("iframe", {"embedUrl": f"http://{HOST}:3000/terminal/",
+        ("iframe", {"embedUrl": f"{DASHBOARD_ORIGIN}/terminal/",
                     "allowFullScreen": True}, 8, 5),
     ]
 

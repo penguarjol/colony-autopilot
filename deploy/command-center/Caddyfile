@@ -28,6 +28,27 @@
 	}
 }
 
+# OpenCode runs its own basic auth. Under the old scheme the browser sent an
+# Authorization header that was simply forwarded; the cookie-based session
+# carries none, so forwarding produced an empty header and OpenCode answered
+# 401 with no body, which is what rendered as a blank panel. Caddy now
+# presents the credential itself.
+(cc_opencode_upstream) {
+	reverse_proxy 127.0.0.1:4097 {
+		header_up Authorization "Basic {$CC_OPENCODE_BASIC}"
+	}
+}
+
+# Panels are framed by the board, which is now served from the hostname
+# rather than the IP. An origin missing from this list is refused by the
+# browser and shows an empty box.
+(cc_frame_allow) {
+	header {
+		-X-Frame-Options
+		Content-Security-Policy "frame-ancestors 'self' http://192.168.1.171.sslip.io:3000 http://192.168.1.171.sslip.io:7575 http://192.168.1.171:3000 http://192.168.1.171:7575"
+	}
+}
+
 # Retained for the handful of endpoints that are consumed by scripts rather
 # than browsers, where a redirect to a login page would break the caller.
 (cc_basic_auth) {
@@ -78,14 +99,12 @@
 	# off the root. Proxying it here keeps the panel same-origin; the asset
 	# routes below cover what it asks for.
 	handle_path /opencode/* {
-		reverse_proxy 127.0.0.1:4097 {
-			header_up Authorization {http.request.header.Authorization}
-		}
+		import cc_opencode_upstream
 	}
 
 	@opencode_assets path /_next/* /assets/* /api/opencode/*
 	handle @opencode_assets {
-		reverse_proxy 127.0.0.1:4097
+		import cc_opencode_upstream
 	}
 
 	handle {
@@ -97,14 +116,9 @@
 	import cc_auth
 
 	# Homarr embeds this origin in an iframe widget; the defaults would refuse.
-	header {
-		-X-Frame-Options
-		Content-Security-Policy "frame-ancestors 'self' http://192.168.1.171:3000 http://192.168.1.171:7575"
-	}
+	import cc_frame_allow
 
-	reverse_proxy 127.0.0.1:4097 {
-		header_up Authorization {http.request.header.Authorization}
-	}
+	import cc_opencode_upstream
 }
 
 :3001 {
@@ -174,10 +188,7 @@ http://192.168.1.171:8186 {
 
 	# Embedded as a terminal panel on the board, so the same framing allowance
 	# the OpenCode panel needs applies here.
-	header {
-		-X-Frame-Options
-		Content-Security-Policy "frame-ancestors 'self' http://192.168.1.171:3000 http://192.168.1.171:7575"
-	}
+	import cc_frame_allow
 
 	# ttyd upgrades to a websocket for the terminal stream.
 	reverse_proxy 127.0.0.1:7681

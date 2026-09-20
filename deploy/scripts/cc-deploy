@@ -172,6 +172,27 @@ cmd_sso() {
   printf '  sso login verified\n'
 }
 
+# OpenCode enforces its own basic auth. The cookie session carries no
+# Authorization header, so Caddy has to present the credential on its behalf
+# or OpenCode answers 401 with an empty body and the panel renders blank.
+cmd_opencode_auth() {
+  load_secrets
+  local user pass env_file=/etc/command-center/caddy.env
+  user="$(grep '^OPENCODE_SERVER_USERNAME=' "$AGENT_ENV" | cut -d= -f2-)"
+  pass="$CC_SHARED_PASSWORD"
+  user="${user%\"}"; user="${user#\"}"
+  pass="${pass%\"}"; pass="${pass#\"}"
+
+  local encoded
+  encoded="$(printf '%s:%s' "$user" "$pass" | base64 | tr -d '\n')"
+  touch "$env_file"; chmod 0640 "$env_file"
+  grep -v '^CC_OPENCODE_BASIC=' "$env_file" >"$env_file.tmp" 2>/dev/null || true
+  printf 'CC_OPENCODE_BASIC=%s\n' "$encoded" >>"$env_file.tmp"
+  mv "$env_file.tmp" "$env_file"
+  chmod 0640 "$env_file"
+  printf '  opencode credential written to %s\n' "$env_file"
+}
+
 cmd_caddy() {
   [[ -f /tmp/Caddyfile ]] && install -m 0640 /tmp/Caddyfile "$CONFIG_DIR/Caddyfile"
   caddy validate --config "$CONFIG_DIR/Caddyfile" --adapter caddyfile >/dev/null ||
@@ -293,6 +314,7 @@ case "${1:-}" in
   phase-c)  cmd_phase_c ;;
   immich)   cmd_immich ;;
   sso)      cmd_sso ;;
+  opencode-auth) cmd_opencode_auth ;;
   caddy)    cmd_caddy ;;
   firewall) cmd_firewall ;;
   headroom) cmd_headroom ;;
