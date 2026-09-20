@@ -127,6 +127,9 @@
 # that break when served from a sub-path.
 :8181 {
 	import cc_auth
+	# Pi-hole serves its UI under /admin and answers 403 at the root, so a
+	# tile pointing at the bare host looks broken.
+	redir / /admin/ 302
 	reverse_proxy 127.0.0.1:8081
 }
 

@@ -47,17 +47,23 @@ while read -r port name; do
   code=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -A 'Mozilla/5.0' \
     -H 'Accept: text/html' -H "Host: ${APP_HOST}:${port}" --max-time 10 \
     "http://127.0.0.1:${port}/" || echo 000)
-  # A redirect back to the login page means the session was not accepted.
-  if [[ "$code" == "307" || "$code" == "401" ]]; then
-    printf '  %-14s :%-5s re-prompted (%s)\n' "$name" "$port" "$code"; fail=1
-  else
-    printf '  %-14s :%-5s %s\n' "$name" "$port" "$code"
-  fi
+  case "$code" in
+    # A redirect back to the login page means the session was not accepted.
+    307|401)
+      printf '  %-14s :%-5s re-prompted (%s)\n' "$name" "$port" "$code"; fail=1 ;;
+    # Reachable but refusing. This caught a tile pointed at a service that
+    # serves its UI under a subpath and answers 403 at the root.
+    403|404|000|5??)
+      printf '  %-14s :%-5s broken (%s)\n' "$name" "$port" "$code"; fail=1 ;;
+    *)
+      printf '  %-14s :%-5s %s\n' "$name" "$port" "$code" ;;
+  esac
 done <<'SERVICES'
 3000 dashboard
 3001 uptime-kuma
 9091 cockpit
-8181 glances
+8181 pihole
+61209 glances
 8183 qbittorrent
 9118 jackett
 SERVICES
