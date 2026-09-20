@@ -13,11 +13,44 @@ import sys
 
 DB = "/var/lib/docker/volumes/docker_homarr_data/_data/db/db.sqlite"
 
-# Widgets that stay readable only at close to full width on a phone.
-FULL_WIDTH_ON_MOBILE = {
+# Widgets carrying a list or an embedded document need the full width of a
+# narrow grid; at half width they clip.
+WIDE = {
     "iframe", "healthMonitoring", "dockerContainers",
     "dnsHoleSummary", "dnsHoleControls", "rssFeed",
 }
+
+# Only app tiles are legible in a single cell. Everything else draws a
+# heading plus content, and below these heights renders as an empty box,
+# which is what "broken tiles" on a phone actually looks like.
+MIN_HEIGHT = {
+    "clock": 1,
+    "weather": 1,
+    "minecraftServerStatus": 2,
+    "dnsHoleSummary": 2,
+    "dnsHoleControls": 2,
+    "dockerContainers": 4,
+    "healthMonitoring": 4,
+    "rssFeed": 4,
+    # An embedded terminal or agent session is unusable in a few rows.
+    "iframe": 6,
+}
+
+COMPACT = {"app"}
+DEFAULT_MIN_HEIGHT = 2
+
+
+def target_size(kind: str, width: int, height: int, columns: int) -> tuple[int, int]:
+    if kind in COMPACT:
+        return 1, 1
+    # Half width is one cell on a two-column grid, which is why widgets came
+    # out square and empty. Anything that is not an app tile gets the full
+    # width there.
+    if columns <= 2 or kind in WIDE:
+        new_width = columns
+    else:
+        new_width = max(2, columns // 2)
+    return new_width, max(height, MIN_HEIGHT.get(kind, DEFAULT_MIN_HEIGHT))
 
 
 def reflow(conn: sqlite3.Connection, layout_id: str, columns: int) -> int:
@@ -32,12 +65,7 @@ def reflow(conn: sqlite3.Connection, layout_id: str, columns: int) -> int:
     x = y = row_height = 0
     changed = 0
     for item_id, kind, width, height in items:
-        if kind in FULL_WIDTH_ON_MOBILE:
-            new_width = columns
-            new_height = max(height, 3 if columns <= 2 else height)
-        else:
-            new_width = min(width, max(1, columns // 2))
-            new_height = height
+        new_width, new_height = target_size(kind, width, height, columns)
 
         if x + new_width > columns:
             x = 0
@@ -82,9 +110,28 @@ def main() -> None:
                 "WHERE layout_id=? AND (x_offset + width) > ?",
                 (layout_id, columns),
             ).fetchone()[0]
-            status = "ok" if over == 0 else f"{over} OVERFLOWING"
-            print(f"  {name:<8} cols={columns:<3} {status}")
+            # Fitting the grid is not the same as being readable. A widget
+            # shrunk below its minimum fits perfectly and still renders blank.
+            undersized = [
+                f"{kind} {w}x{h}"
+                for kind, w, h in conn.execute(
+                    "SELECT i.kind, il.width, il.height FROM item_layout il "
+                    "JOIN item i ON i.id = il.item_id WHERE il.layout_id=?",
+                    (layout_id,),
+                )
+                if kind not in COMPACT
+                and h < MIN_HEIGHT.get(kind, DEFAULT_MIN_HEIGHT)
+            ]
+            problems = []
             if over:
+                problems.append(f"{over} OVERFLOWING")
+            if undersized:
+                problems.append(f"{len(undersized)} UNDERSIZED")
+            status = "ok" if not problems else ", ".join(problems)
+            print(f"  {name:<8} cols={columns:<3} {status}")
+            for u in undersized[:6]:
+                print(f"      undersized {u}")
+            if problems:
                 sys.exit(1)
     finally:
         conn.close()
