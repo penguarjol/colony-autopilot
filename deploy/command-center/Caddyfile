@@ -71,6 +71,15 @@
 	reverse_proxy 127.0.0.1:3011
 }
 
+# OpenID Connect requires the issuer to be served over TLS and refuses to
+# start otherwise, so the provider gets a second, secure origin. The
+# certificate comes from Caddy's internal CA, whose root has to be trusted by
+# each browser and by the Homarr container that fetches discovery.
+https://auth.192.168.1.171.sslip.io:3443 {
+	import cc_tls
+	reverse_proxy 127.0.0.1:3012
+}
+
 :3000 {
 	import cc_auth
 

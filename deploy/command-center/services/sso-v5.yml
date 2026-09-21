@@ -31,7 +31,9 @@ services:
     command:
       # The public URL, not the container port: tokens and redirects are
       # minted against this, so it must match what a browser sees.
-      - --appurl=http://auth.192.168.1.171.sslip.io:3010
+      # Must be https: OIDC refuses to initialise on a plain-HTTP issuer.
+      # Caddy terminates TLS for this name on 3443 and proxies here.
+      - --appurl=https://auth.192.168.1.171.sslip.io:3443
       - --auth.usersfile=/secrets/users
       - --auth.sessionexpiry=604800
       - --database.path=/data/tinyauth.db
