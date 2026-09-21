@@ -31,7 +31,7 @@ if (!user || !pass) {
   console.error('could not read the shared credential from the server');
   process.exit(2);
 }
-const HOST = '192.168.1.171.sslip.io';
+const HOST = 'apengu-home.duckdns.org';
 const BOARD = `http://${HOST}:3000/`;
 const AUTH = `http://auth.${HOST}:3010`;
 

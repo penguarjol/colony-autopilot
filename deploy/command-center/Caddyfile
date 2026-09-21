@@ -7,6 +7,10 @@
 	# which Nginx Proxy Manager already owns. The explicit redirect site below
 	# covers that need without the port conflict.
 	auto_https disable_redirects
+
+	# Let's Encrypt validates by TXT record, so nothing here has to be
+	# reachable from the internet. The token is supplied by the unit file.
+	acme_dns duckdns {env.DUCKDNS_TOKEN}
 }
 
 # Single sign-on. Basic auth is scoped per origin, and an origin includes the
@@ -19,8 +23,10 @@
 	# IP would mean no session and a fresh login every time. redir is ordered
 	# ahead of forward_auth, so this settles before the auth check runs, and
 	# existing IP bookmarks keep working.
-	@ip host 192.168.1.171
-	redir @ip http://192.168.1.171.sslip.io:{http.request.local.port}{uri} 302
+	# Also covers the previous sslip.io name, whose cookies are scoped to a
+	# domain this one no longer uses.
+	@stale_host host 192.168.1.171 192.168.1.171.sslip.io
+	redir @stale_host http://apengu-home.duckdns.org:{http.request.local.port}{uri} 302
 
 	forward_auth 127.0.0.1:3011 {
 		uri /api/auth/caddy
@@ -45,7 +51,7 @@
 (cc_frame_allow) {
 	header {
 		-X-Frame-Options
-		Content-Security-Policy "frame-ancestors 'self' http://192.168.1.171.sslip.io:3000 http://192.168.1.171.sslip.io:7575 http://192.168.1.171:3000 http://192.168.1.171:7575"
+		Content-Security-Policy "frame-ancestors 'self' http://apengu-home.duckdns.org:3000 http://apengu-home.duckdns.org:7575 http://192.168.1.171:3000 http://192.168.1.171:7575"
 	}
 }
 
@@ -75,8 +81,7 @@
 # start otherwise, so the provider gets a second, secure origin. The
 # certificate comes from Caddy's internal CA, whose root has to be trusted by
 # each browser and by the Homarr container that fetches discovery.
-https://auth.192.168.1.171.sslip.io:3443 {
-	import cc_tls
+https://auth.apengu-home.duckdns.org:3443 {
 	reverse_proxy 127.0.0.1:3012
 }
 

@@ -9,6 +9,9 @@ EnvironmentFile=/etc/command-center/caddy.env
 # Caddy's internal CA writes its root certificate under XDG_DATA_HOME. Without
 # these the process inherits no writable home, ProtectSystem=strict blocks the
 # write, and startup fails with "mkdir caddy: read-only file system".
+# Let's Encrypt proves control of the name by TXT record, so the DNS API
+# token has to be available to the process issuing certificates.
+EnvironmentFile=/etc/command-center/duckdns.env
 Environment=XDG_DATA_HOME=/var/lib/caddy
 Environment=XDG_CONFIG_HOME=/var/lib/caddy
 StateDirectory=caddy

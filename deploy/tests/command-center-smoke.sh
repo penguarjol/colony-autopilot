@@ -74,7 +74,7 @@ fi
 grep -Fq '/api/auth/caddy' "$caddyfile"
 # A cookie cannot be scoped to an IP literal, so IP arrivals must land on the
 # hostname before the auth check or the session never sticks.
-grep -Fq 'sslip.io' "$caddyfile"
+grep -Fq 'apengu-home.duckdns.org' "$caddyfile"
 if ! grep -A2 -E '^:3010 \{' "$caddyfile" | grep -Fq 'reverse_proxy'; then
   printf 'the sso login origin must not import cc_auth\n' >&2
   exit 1
@@ -87,7 +87,7 @@ python3 -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$sso"
 grep -Fq 'LOG_LEVEL: "1"' "$sso"
 # tinyauth scopes the cookie to APP_URL minus its first label, so the auth
 # host must sit one level below the name services are reached by.
-grep -Fq 'APP_URL: http://auth.192.168.1.171.sslip.io:3010' "$sso"
+grep -Fq 'APP_URL: http://auth.apengu-home.duckdns.org:3010' "$sso"
 # Signing in must land on the requested page, not an interstitial.
 grep -Fq 'DISABLE_CONTINUE: "true"' "$sso"
 

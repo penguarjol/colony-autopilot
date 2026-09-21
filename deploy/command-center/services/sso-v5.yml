@@ -32,8 +32,9 @@ services:
       # The public URL, not the container port: tokens and redirects are
       # minted against this, so it must match what a browser sees.
       # Must be https: OIDC refuses to initialise on a plain-HTTP issuer.
-      # Caddy terminates TLS for this name on 3443 and proxies here.
-      - --appurl=https://auth.192.168.1.171.sslip.io:3443
+      # Caddy terminates TLS for this name on 3443 with a Let's Encrypt
+      # certificate, so Homarr trusts it without any CA plumbing.
+      - --appurl=https://auth.apengu-home.duckdns.org:3443
       - --auth.usersfile=/secrets/users
       - --auth.sessionexpiry=604800
       - --database.path=/data/tinyauth.db
@@ -44,7 +45,7 @@ services:
       - --oidc.clients.homarr.name=Command Center
       - --oidc.clients.homarr.id=homarr
       - --oidc.clients.homarr.clientsecretfile=/secrets/homarr-client-secret
-      - --oidc.clients.homarr.trustedredirecturis=http://192.168.1.171.sslip.io:3000/api/auth/callback/oidc
+      - --oidc.clients.homarr.trustedredirecturis=http://apengu-home.duckdns.org:3000/api/auth/callback/oidc
 
 volumes:
   tinyauth_v5_data:

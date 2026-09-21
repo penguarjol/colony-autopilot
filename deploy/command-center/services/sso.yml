@@ -29,14 +29,14 @@ services:
       SECRET: ${CC_SSO_SECRET:?CC_SSO_SECRET is required}
       # tinyauth scopes its cookie to APP_URL minus the first label, so this
       # must sit one level below the name the services are reached by.
-      # Stripping "auth." leaves 192.168.1.171.sslip.io, which covers every
+      # Stripping "auth." leaves apengu-home.duckdns.org, which covers every
       # service on that host; cookies ignore the port.
       #
       # A bare IP cannot work here. RFC 6265 has browsers discard any cookie
       # carrying a Domain attribute when the request host is an IP literal.
-      # sslip.io resolves *.192.168.1.171.sslip.io to 192.168.1.171 from
-      # public DNS, so this needs no router or client configuration.
-      APP_URL: http://auth.192.168.1.171.sslip.io:3010
+      # DuckDNS resolves this name, and its wildcards, to 192.168.1.171 from
+      # public DNS, so no router or client needs configuring.
+      APP_URL: http://auth.apengu-home.duckdns.org:3010
       COOKIE_SECURE: "false"
       SESSION_EXPIRY: "604800"
       # Numeric zerolog level; the string names are rejected at startup.
