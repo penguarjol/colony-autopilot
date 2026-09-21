@@ -193,6 +193,51 @@ cmd_opencode_auth() {
   printf '  opencode credential written to %s\n' "$env_file"
 }
 
+# Brings up tinyauth v5 next to v3 and proves it before anything points at
+# it. A provider that is up but rejects the credential locks out every
+# service at once, so this never touches Caddy.
+cmd_sso_v5() {
+  load_secrets
+  local dir="$CONFIG_DIR/oidc"
+  install -d -m 0750 "$dir"
+
+  local secret_file="$dir/homarr-client-secret" users_file="$dir/users"
+  [[ -f "$secret_file" ]] || openssl rand -hex 32 | tr -d '\n' >"$secret_file"
+
+  local user pass
+  user="$(grep '^OPENCODE_SERVER_USERNAME=' "$AGENT_ENV" | cut -d= -f2-)"
+  pass="$CC_SHARED_PASSWORD"
+  user="${user%\"}"; user="${user#\"}"
+  pass="${pass%\"}"; pass="${pass#\"}"
+  printf '%s:%s\n' "$user" "$(caddy hash-password --plaintext "$pass")" \
+    >"$users_file"
+  # The container runs unprivileged and reads these, so they are not 0600.
+  chmod 0644 "$secret_file" "$users_file"
+
+  compose sso-v5 up -d
+  sleep 10
+  wait_http tinyauth-v5 http://127.0.0.1:3012/ 24
+
+  # Discovery is what Homarr fetches first; without it the OIDC login never
+  # starts.
+  local disco
+  disco="$(curl -s --max-time 10 \
+    http://127.0.0.1:3012/.well-known/openid-configuration || true)"
+  grep -q authorization_endpoint <<<"$disco" \
+    || die "v5 is up but serves no OIDC discovery document"
+  printf '  oidc discovery ok\n'
+
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' \
+    --data-binary @<(printf '{"username":%s,"password":%s}' \
+      "$(printf '%s' "$user" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
+      "$(printf '%s' "$pass" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')") \
+    http://127.0.0.1:3012/api/login)"
+  [[ "$code" == "200" ]] || die "v5 rejected the shared credential (HTTP $code)"
+  printf '  sso v5 login verified\n'
+}
+
 cmd_caddy() {
   [[ -f /tmp/Caddyfile ]] && install -m 0640 /tmp/Caddyfile "$CONFIG_DIR/Caddyfile"
   caddy validate --config "$CONFIG_DIR/Caddyfile" --adapter caddyfile >/dev/null ||
@@ -314,6 +359,7 @@ case "${1:-}" in
   phase-c)  cmd_phase_c ;;
   immich)   cmd_immich ;;
   sso)      cmd_sso ;;
+  sso-v5)   cmd_sso_v5 ;;
   opencode-auth) cmd_opencode_auth ;;
   caddy)    cmd_caddy ;;
   firewall) cmd_firewall ;;

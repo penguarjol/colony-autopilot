@@ -1,0 +1,48 @@
+# tinyauth v5, which is an OpenID provider as well as a forward-auth gate.
+#
+# v3 guards the perimeter but Homarr never learns who signed in, so it shows
+# its own login behind the gate and the credential is asked for twice. v5 can
+# issue OIDC tokens, which Homarr accepts, so one sign-in covers both.
+#
+# Runs alongside v3 on its own port and database until verified. Caddy fronts
+# it at auth.<host>:3010 either way, so the issuer URL Homarr is configured
+# with does not change at cutover.
+#
+# Configured by flag rather than environment. v5 reorganised its settings
+# into dotted keys and the environment spelling is not what v3 used, so the
+# flags are the unambiguous surface. Secrets are passed as files: a bcrypt
+# hash contains dollar signs that compose would try to interpolate, and
+# anything on the command line is visible in docker inspect.
+name: cc-sso-v5
+
+services:
+  tinyauth-v5:
+    image: ghcr.io/steveiliop56/tinyauth:v5
+    container_name: tinyauth-v5
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "127.0.0.1:3012:3000"
+      - "172.17.0.1:3012:3000"
+    volumes:
+      - tinyauth_v5_data:/data
+      # Must match CONFIG_DIR in cc-deploy, which writes these.
+      - /etc/command-center/oidc:/secrets:ro
+    command:
+      # The public URL, not the container port: tokens and redirects are
+      # minted against this, so it must match what a browser sees.
+      - --appurl=http://auth.192.168.1.171.sslip.io:3010
+      - --auth.usersfile=/secrets/users
+      - --auth.sessionexpiry=604800
+      - --database.path=/data/tinyauth.db
+      # Signing keys live on the volume so a restart does not invalidate
+      # every issued token.
+      - --oidc.privatekeypath=/data/oidc_key
+      - --oidc.publickeypath=/data/oidc_key.pub
+      - --oidc.clients.homarr.name=Command Center
+      - --oidc.clients.homarr.id=homarr
+      - --oidc.clients.homarr.clientsecretfile=/secrets/homarr-client-secret
+      - --oidc.clients.homarr.trustedredirecturis=http://192.168.1.171.sslip.io:3000/api/auth/callback/oidc
+
+volumes:
+  tinyauth_v5_data:
