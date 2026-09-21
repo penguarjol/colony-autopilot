@@ -51,6 +51,42 @@ requires an explicit `--reset`.
 
 ## In progress: one login for Homarr too
 
+**Update.** The command center now answers on `apengu-home.duckdns.org`
+(DuckDNS, wildcards included) and the OIDC issuer holds a real Let's Encrypt
+certificate at `https://auth.apengu-home.duckdns.org:3443`. Caddy was
+rebuilt with the DuckDNS DNS module; the stock binary carries no DNS
+providers and the TXT challenge is the only one usable for a host that is
+not publicly reachable. Nothing is exposed to the internet: the A record
+points a public name at a LAN address, and validation never contacts the
+server.
+
+Every certificate workaround is gone. Homarr fetches discovery with no CA
+plumbing, verified, and no root certificate needs installing on any device.
+The OIDC handshake itself runs correctly: Homarr redirects to /authorize
+with PKCE, the right client and the right redirect URI, and the issuer
+accepts it.
+
+**What is left is one change.** Two tinyauth instances are running: v3 gates
+the perimeter on 3011, v5 issues tokens on 3012. Separate instances mean
+separate sessions, so signing in at the gate does not satisfy the provider
+and it asks again. Point Caddy at v5 for both and retire v3:
+
+  - in the Caddyfile, `forward_auth 127.0.0.1:3011` becomes `3012`
+  - the `:3010` site's `reverse_proxy 127.0.0.1:3011` becomes `3012`
+  - `/api/auth/caddy` exists on v5, confirmed, so the path does not change
+
+**Verify v5 accepts the shared password before doing this.** It becomes the
+only gate, so if it rejects the credential every service locks out at once.
+v5 writes its users file from the same hash and its login page renders, but
+a successful sign-in has not been observed. Keep the previous Caddyfile as
+`.bak` and restart rather than reload on rollback: reload cannot revive a
+unit that failed to start.
+
+The DNS API token is on the server only, at `/etc/colony-agent/duckdns.token`
+and `/etc/command-center/duckdns.env`. It is not in this repository.
+
+
+
 Forward auth guards the perimeter but issues no token, so Homarr shows its
 own login behind the gate and the credential is asked for twice. tinyauth v5
 is an OpenID provider, which Homarr accepts.
