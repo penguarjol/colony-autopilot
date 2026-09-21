@@ -44,8 +44,14 @@ const viewports = {
 // and on a network that blocks or filters that lookup the navigation fails
 // before any of this is exercised. Pin the name so the test measures
 // rendering rather than whatever DNS the runner happens to have.
+// The issuer's certificate comes from Caddy's internal CA, which this runner
+// has no reason to trust. Accepting it here keeps the test about whether the
+// panels render; whether a given device trusts the CA is a separate concern.
 const browser = await chromium.launch({
-  args: [`--host-resolver-rules=MAP *${HOST} 192.168.1.171`],
+  args: [
+    `--host-resolver-rules=MAP *${HOST} 192.168.1.171,MAP *.${HOST} 192.168.1.171`,
+    '--ignore-certificate-errors',
+  ],
 });
 let failed = 0;
 
@@ -79,6 +85,24 @@ for (const [label, viewport] of Object.entries(viewports)) {
       () => {},
     );
     await page.waitForURL((u) => !u.toString().startsWith(AUTH), { timeout: 45000 });
+  }
+
+  // Homarr keeps its own credential store, so passing the perimeter gate is
+  // not the same as being signed in here. Take the OIDC route: that is the
+  // whole point of the provider, and the round trip should be silent
+  // because the session already exists.
+  if (page.url().includes('/auth/login')) {
+    const sso = page.getByRole('button', { name: /command center/i })
+      .or(page.getByRole('link', { name: /command center/i }));
+    if (await sso.count()) {
+      console.log('  homarr showed its own login; using the OIDC button');
+      await sso.first().click();
+      await page.waitForURL((u) => !u.toString().includes('/auth/login'), {
+        timeout: 45000,
+      }).catch(() => {});
+    } else {
+      console.log('  homarr showed its own login with no OIDC option');
+    }
   }
 
   await page.waitForLoadState('networkidle', { timeout: 45000 }).catch(() => {});
