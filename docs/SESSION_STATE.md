@@ -49,6 +49,53 @@ previous layouts are unrecoverable; Homarr keeps no board history.
 Placement is now additive and exits early when the board exists. Rebuilding
 requires an explicit `--reset`.
 
+## In progress: one login for Homarr too
+
+Forward auth guards the perimeter but issues no token, so Homarr shows its
+own login behind the gate and the credential is asked for twice. tinyauth v5
+is an OpenID provider, which Homarr accepts.
+
+**Working already:** v5 runs on 3012, Caddy serves its issuer over TLS at
+`https://auth.192.168.1.171.sslip.io:3443` using the internal CA, and it
+serves discovery and JWKS with the `homarr` client registered. v3 still
+handles forward auth for everything, untouched.
+
+**Next, in order:**
+
+1. Apply the Homarr override and confirm it can fetch discovery:
+
+```
+./deploy/scripts/ccssh --put deploy/scripts/configure-homarr-oidc.sh \
+  serveradmin@192.168.1.171:/tmp/
+./deploy/scripts/ccssh 'bash /tmp/configure-homarr-oidc.sh'
+```
+
+2. Trust Caddy's CA on each device, or the browser refuses the issuer.
+   Export it with:
+
+```
+./deploy/scripts/ccssh 'cat /var/lib/caddy/caddy/pki/authorities/local/root.crt' \
+  > caddy-root.crt
+```
+
+   macOS: open it in Keychain Access, System keychain, set to Always Trust.
+   iOS: mail or AirDrop it, install the profile, then enable it under
+   Settings, General, About, Certificate Trust Settings.
+
+3. Verify in a browser, not with curl: `node deploy/tests/render-board.mjs`.
+   It logs in and reports whether the panels painted. A status code cannot
+   see a refused frame or a blank single-page app.
+
+4. Only once step 3 passes, set `AUTH_OIDC_AUTO_LOGIN=true` so Homarr goes
+   straight to the provider instead of showing a chooser, then move Caddy's
+   forward auth from 3011 to 3012 and retire v3.
+
+**Do not skip the credential check at cutover.** It was removed from the
+staging step because v5 changed its login payload and v5 gates nothing yet.
+Once it becomes the gate, a provider that rejects the shared password locks
+out every service at once. The endpoint is `/api/auth/login`; the v3 body
+shape returns 400, so the payload needs to be read off the login page first.
+
 ## Deployed and verified
 
 Latest `verify-sso.sh` run against the server:
