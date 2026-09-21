@@ -41,3 +41,7 @@ services:
       SESSION_EXPIRY: "604800"
       # Numeric zerolog level; the string names are rejected at startup.
       LOG_LEVEL: "1"
+      # Without this, signing in stops on an interstitial with a Continue
+      # button instead of returning to the page that was asked for.
+      DISABLE_CONTINUE: "true"
+      APP_TITLE: Command Center

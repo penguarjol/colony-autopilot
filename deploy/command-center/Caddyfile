@@ -86,26 +86,13 @@
 		}
 	}
 
-	# Served from this origin so the embedded panels inherit the session the
-	# browser already established here. A cross-origin iframe to another port
-	# never carries the cached basic-auth credential, so those panels render
-	# as an empty box. ttyd inlines its assets as data URIs, so it survives
-	# being moved off the root.
-	handle_path /terminal/* {
-		reverse_proxy 127.0.0.1:7681
-	}
-
-	# OpenCode requests its assets from absolute paths, so it cannot be moved
-	# off the root. Proxying it here keeps the panel same-origin; the asset
-	# routes below cover what it asks for.
-	handle_path /opencode/* {
-		import cc_opencode_upstream
-	}
-
-	@opencode_assets path /_next/* /assets/* /api/opencode/*
-	handle @opencode_assets {
-		import cc_opencode_upstream
-	}
+	# The embedded panels are served from their own ports, not from a subpath
+	# here. OpenCode calls absolute /api/* routes and this origin's /api/*
+	# belongs to Homarr, so a subpath sends every one of its requests to the
+	# wrong server and the panel renders blank. The subpath only existed
+	# because cross-origin basic auth never carried the credential; the
+	# session cookie is scoped to the host and ignores the port, so framing
+	# a sibling port now works and keeps each app on its own /api namespace.
 
 	handle {
 		reverse_proxy 127.0.0.1:7575

@@ -88,6 +88,8 @@ grep -Fq 'LOG_LEVEL: "1"' "$sso"
 # tinyauth scopes the cookie to APP_URL minus its first label, so the auth
 # host must sit one level below the name services are reached by.
 grep -Fq 'APP_URL: http://auth.192.168.1.171.sslip.io:3010' "$sso"
+# Signing in must land on the requested page, not an interstitial.
+grep -Fq 'DISABLE_CONTINUE: "true"' "$sso"
 
 # caddy validate only parses syntax. A site that proxies to its own port
 # passes it, then fails to bind at runtime and takes the proxy down. Catch

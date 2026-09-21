@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Repoint embedded panels at the origin the board is served from.
 
-The tiles were authored against the IP. Once the board moved to a hostname
-for the sake of the session cookie, those panels became cross-origin: the
-cookie is scoped to the hostname and is never sent to the IP, and the frame
-allowance did not list the new parent. Both show up as an empty panel.
+Each panel needs its own port. Served under a subpath of the board, an app
+that calls absolute /api routes reaches Homarr's API instead of its own and
+renders blank. The host must be the name rather than the IP, because the
+session cookie is scoped to the name and is never sent to an IP.
 
 Edits the two iframe rows in place rather than rebuilding the board, so any
 arrangement made in the UI survives. Idempotent.
@@ -16,8 +16,12 @@ import sqlite3
 import sys
 
 DB = "/var/lib/docker/volumes/docker_homarr_data/_data/db/db.sqlite"
-ORIGIN = "http://192.168.1.171.sslip.io:3000"
-STALE_PREFIXES = ("http://192.168.1.171:3000", "http://127.0.0.1:3000")
+HOST = "192.168.1.171.sslip.io"
+# Old subpath and IP forms, mapped to the port each panel now owns.
+RETARGET = {
+    "/opencode/": f"http://{HOST}:4096/",
+    "/terminal/": f"http://{HOST}:7682/",
+}
 
 
 def main() -> int:
@@ -30,14 +34,14 @@ def main() -> int:
             opts = json.loads(raw)
             inner = opts.get("json", opts)
             url = inner.get("embedUrl", "")
-            for prefix in STALE_PREFIXES:
-                if url.startswith(prefix):
-                    inner["embedUrl"] = ORIGIN + url[len(prefix):]
+            for marker, target in RETARGET.items():
+                if marker in url and url != target:
+                    inner["embedUrl"] = target
                     con.execute(
                         "UPDATE item SET options=? WHERE id=?",
                         (json.dumps(opts), item_id),
                     )
-                    print(f"  {url} -> {inner['embedUrl']}")
+                    print(f"  {url} -> {target}")
                     changed += 1
                     break
         con.commit()
@@ -47,7 +51,7 @@ def main() -> int:
         for (raw,) in con.execute("SELECT options FROM item WHERE kind='iframe'"):
             opts = json.loads(raw)
             url = opts.get("json", opts).get("embedUrl", "")
-            ok = url.startswith(ORIGIN)
+            ok = url in RETARGET.values()
             print(f"  {'ok  ' if ok else 'BAD '} {url}")
             bad += 0 if ok else 1
         return 1 if bad else 0

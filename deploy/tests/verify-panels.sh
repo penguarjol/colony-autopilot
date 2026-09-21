@@ -31,11 +31,12 @@ printf 'login ok\n\n'
 fail=0
 
 printf 'panel content:\n'
-for path in /opencode/ /terminal/; do
+for spec in "4096:opencode" "7682:terminal"; do
+  port=${spec%%:*}; path=${spec##*:}
   read -r code bytes < <(curl -s -o /dev/null \
     -w '%{http_code} %{size_download}' -b "$jar" -A 'Mozilla/5.0' \
-    -H 'Accept: text/html' -H "Host: ${ORIGIN_HOST}:3000" --max-time 20 \
-    "http://127.0.0.1:3000${path}")
+    -H 'Accept: text/html' -H "Host: ${ORIGIN_HOST}:${port}" --max-time 20 \
+    "http://127.0.0.1:${port}/")
   if [[ "$code" != "200" ]]; then
     printf '  %-12s HTTP %s  <-- not served\n' "$path" "$code"; fail=1
   elif (( bytes < MIN_BYTES )); then
@@ -47,13 +48,15 @@ for path in /opencode/ /terminal/; do
 done
 
 printf '\nframing allowance:\n'
-for path in /opencode/ /terminal/; do
+for spec in "4096:opencode" "7682:terminal"; do
+  port=${spec%%:*}; path=${spec##*:}
   csp=$(curl -s -D- -o /dev/null -b "$jar" -A 'Mozilla/5.0' \
-    -H "Host: ${ORIGIN_HOST}:3000" --max-time 20 \
-    "http://127.0.0.1:3000${path}" | grep -i '^content-security-policy' || true)
+    -H "Host: ${ORIGIN_HOST}:${port}" --max-time 20 \
+    "http://127.0.0.1:${port}/" | grep -i '^content-security-policy' || true)
   # Same-origin framing is what the board relies on; 'self' covers it.
-  if grep -q "frame-ancestors" <<<"$csp" \
-     && ! grep -qE "'self'|${ORIGIN_HOST}:3000" <<<"$csp"; then
+  # The board frames these from its own origin, which must be listed;
+  # 'self' does not cover a different port.
+  if ! grep -qF "${ORIGIN_HOST}:3000" <<<"$csp"; then
     printf '  %-12s parent origin not allowed\n' "$path"; fail=1
   else
     printf '  %-12s ok\n' "$path"
@@ -68,12 +71,29 @@ done < <(python3 - "$DB" "$ORIGIN_HOST" <<'PY'
 import json, sqlite3, sys
 db, host = sys.argv[1], sys.argv[2]
 con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-want = f"http://{host}:3000"
+want = (f"http://{host}:4096/", f"http://{host}:7682/")
 for (raw,) in con.execute("SELECT options FROM item WHERE kind='iframe'"):
     url = json.loads(raw).get("json", {}).get("embedUrl", "")
-    print(("ok   " if url.startswith(want) else "BAD  ") + url)
+    print(("ok   " if url in want else "BAD  ") + url)
 PY
 )
+
+# An app served where another owns /api answers with the wrong server's
+# response and renders blank, which no status check would reveal.
+printf '\nown api reachable:\n'
+for spec in "4096:/api/health:opencode"; do
+  port=$(cut -d: -f1 <<<"$spec"); api=$(cut -d: -f2 <<<"$spec")
+  name=$(cut -d: -f3 <<<"$spec")
+  body=$(curl -s -b "$jar" -H "Host: ${ORIGIN_HOST}:${port}" --max-time 20 \
+    "http://127.0.0.1:${port}${api}")
+  if grep -qi "trpc\|homarr" <<<"$body"; then
+    printf '  %-12s %s answered by the wrong app\n' "$name" "$api"; fail=1
+  elif [[ -z "$body" ]]; then
+    printf '  %-12s %s empty\n' "$name" "$api"; fail=1
+  else
+    printf '  %-12s %s ok (%s)\n' "$name" "$api" "$(head -c 60 <<<"$body")"
+  fi
+done
 
 printf '\n'
 if (( fail )); then
